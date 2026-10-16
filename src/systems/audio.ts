@@ -163,6 +163,11 @@ export class AudioEngine {
       this.osc('triangle', mtof(n - 12), mtof(n - 12), 0.2, 0.1, t + i * 0.1);
     });
   }
+  laser() {
+    if (!this.throttle('laser', 0.06)) return;
+    this.osc('sawtooth', 2400, 900, 0.06, 0.02);
+    this.osc('sine', 1800, 600, 0.06, 0.03);
+  }
   bell() {
     const t = this.now;
     this.osc('sine', 1568, 1568, 0.25, 0.12, t);
@@ -221,7 +226,35 @@ const BOSS: Track = {
   arpOct: 24,
 };
 
+// Cave: slower, sparse, E minor with a suspended colour.
+const STAGE2: Track = {
+  bpm: 118,
+  roots: [40, 36, 43, 38],
+  chord: [[0, 7, 10, 14], [0, 4, 7, 11], [0, 4, 7, 14], [0, 5, 7, 12]],
+  bass: [0, 12, 0, 0, 12, 0, 0, 7, 0, 12, 0, 0, 12, 0, 10, 7],
+  kick: [0, 6, 8],
+  snare: [4, 12],
+  hat: [2, 6, 10, 14, 15],
+  arpOct: 24,
+};
+
+// Fortress: fast and mechanical, C minor.
+const STAGE3: Track = {
+  bpm: 146,
+  roots: [36, 39, 32, 34],
+  chord: [[0, 3, 7, 10], [0, 4, 7, 11], [0, 4, 7, 12], [0, 4, 7, 10]],
+  bass: [0, 0, 12, 0, 0, 12, 0, 0, 0, 12, 0, 0, 12, 0, 15, 12],
+  kick: [0, 4, 8, 10, 12],
+  snare: [4, 12],
+  hat: [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15],
+  arpOct: 24,
+};
+
+export type MusicName = 'stage1' | 'stage2' | 'stage3' | 'boss';
+const TRACKS: Record<MusicName, Track> = { stage1: STAGE, stage2: STAGE2, stage3: STAGE3, boss: BOSS };
+
 export class Music {
+  private playId = 0;
   private timer: number | null = null;
   private step = 0;
   private next = 0;
@@ -242,9 +275,10 @@ export class Music {
     this.delay.connect(wet).connect(this.bus);
   }
 
-  play(name: 'stage' | 'boss') {
+  play(name: MusicName) {
     this.stop();
-    this.track = name === 'stage' ? STAGE : BOSS;
+    this.playId++;
+    this.track = TRACKS[name];
     this.delay.delayTime.value = (60 / this.track.bpm) * 0.75;
     this.step = 0;
     this.next = this.a.now + 0.06;
@@ -258,7 +292,9 @@ export class Music {
     this.bus.gain.cancelScheduledValues(t);
     this.bus.gain.setValueAtTime(this.bus.gain.value, t);
     this.bus.gain.linearRampToValueAtTime(0, t + sec);
-    window.setTimeout(() => this.stop(), sec * 1000 + 50);
+    // Only stop the track that was fading; a new play() in the meantime wins.
+    const id = this.playId;
+    window.setTimeout(() => id === this.playId && this.stop(), sec * 1000 + 50);
   }
 
   stop() {

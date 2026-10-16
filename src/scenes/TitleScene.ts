@@ -3,6 +3,7 @@ import { DEPTH, FONT, H, W } from '../config';
 import { audio } from '../systems/audio';
 import { Background } from '../systems/background';
 import { Controls } from '../systems/controls';
+import type { GameData } from './GameScene';
 
 export class TitleScene extends Phaser.Scene {
   private bg!: Background;
@@ -17,7 +18,7 @@ export class TitleScene extends Phaser.Scene {
     super('Title');
   }
 
-  create(data: { boss?: boolean; startAt?: number }) {
+  create(data: GameData) {
     this.started = false;
     this.bg = new Background(this);
     this.cameras.main.postFX.addVignette(0.5, 0.5, 0.95, 0.35);
@@ -44,7 +45,7 @@ export class TitleScene extends Phaser.Scene {
       .setShadow(0, 0, '#3cf0ff', 22, true, true)
       .setDepth(DEPTH.hud);
     const sub = this.add
-      .text(W / 2 + 60, 222, 'HORIZONTAL SHOOTING  ·  PROTOTYPE STAGE 1', { fontFamily: FONT, fontSize: '13px', color: '#ff7ad8', fontStyle: '700' })
+      .text(W / 2 + 60, 222, 'HORIZONTAL SHOOTING  ·  3 STAGES', { fontFamily: FONT, fontSize: '13px', color: '#ff7ad8', fontStyle: '700' })
       .setOrigin(0.5)
       .setDepth(DEPTH.hud);
     title.setAlpha(0).setScale(1.3);
@@ -90,7 +91,7 @@ export class TitleScene extends Phaser.Scene {
       this.cameras.main.flash(200, 120, 240, 255);
       // force=true: the title's own fade-in may still be running if the player starts instantly.
       this.time.delayedCall(450, () => this.cameras.main.fade(300, 0, 0, 0, true));
-      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Game', { boss: data?.boss, startAt: data?.startAt }));
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Game', { boss: data?.boss, startAt: data?.startAt, stage: data?.stage } satisfies GameData));
     };
     this.startFn = start;
     this.input.on('pointerdown', start);

@@ -56,6 +56,11 @@ export class Controls {
       if (key === 'x' || key === 'y') continue;
       (this.pressed[key] as boolean) = (s[key] as boolean) && !(this.prev[key] as boolean);
     }
+    // A tap shorter than one frame never shows up in isDown; JustDown latches it.
+    const jd = Phaser.Input.Keyboard.JustDown;
+    if (jd(k.Z) || jd(k.ENTER) || jd(k.SPACE)) this.pressed.confirm = true;
+    if (jd(k.X) || jd(k.C)) this.pressed.bomb = true;
+    if (jd(k.ESC) || jd(k.P)) this.pressed.pause = true;
     this.prev = this.state = s;
   }
 }

@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
 import { H } from '../config';
 
-export type CapsuleKey = 'P' | 'O' | 'S' | 'G' | 'B';
+export type CapsuleKey = 'P' | 'L' | 'M' | 'O' | 'G' | 'B';
 
 export const CAPSULES: { key: CapsuleKey; color: string; tint: number; label: string }[] = [
   { key: 'P', color: '#7dff9a', tint: 0x7dff9a, label: 'POWER UP' },
+  { key: 'L', color: '#3cf0ff', tint: 0x3cf0ff, label: 'LASER' },
+  { key: 'M', color: '#ffd23c', tint: 0xffd23c, label: 'MISSILE' },
   { key: 'O', color: '#ff7ad8', tint: 0xff7ad8, label: 'OPTION' },
-  { key: 'S', color: '#ffd23c', tint: 0xffd23c, label: 'SPEED UP' },
   { key: 'G', color: '#c8a0ff', tint: 0xc8a0ff, label: 'GUARD' },
   { key: 'B', color: '#ff6a5a', tint: 0xff6a5a, label: 'BOMB +1' },
 ];
@@ -149,6 +150,28 @@ export function buildTextures(scene: Phaser.Scene) {
     c.restore();
   });
 
+  make(scene, 'plaser', 96, 14, (c) => {
+    c.save();
+    c.shadowColor = '#3cf0ff';
+    c.shadowBlur = 8;
+    const g = c.createLinearGradient(0, 0, 96, 0);
+    g.addColorStop(0, 'rgba(60,240,255,0)');
+    g.addColorStop(0.25, 'rgba(60,240,255,0.9)');
+    g.addColorStop(1, 'rgba(160,250,255,1)');
+    c.fillStyle = g;
+    c.fillRect(2, 4, 92, 6);
+    c.fillStyle = '#ffffff';
+    c.fillRect(24, 6, 70, 2);
+    c.restore();
+  });
+  make(scene, 'missile', 26, 12, (c) => {
+    poly(c, [[24, 6], [16, 2], [3, 3], [3, 9], [16, 10]]);
+    c.fillStyle = '#3a2a06';
+    c.fill();
+    neon(c, '#ffd23c', 1.5, 5);
+    radial(c, 4, 6, 5, [[0, '#ffffff'], [0.5, '#ff8a2a'], [1, 'rgba(255,138,42,0)']]);
+  });
+
   // ---- enemy bullets: dark rim keeps them readable over any background ----
   const orb = (key: string, size: number, rim: string, core: string) =>
     make(scene, key, size, size, (c, w) => {
@@ -158,6 +181,19 @@ export function buildTextures(scene: Phaser.Scene) {
   orb('eb', 18, '#ff3ce0', '#ffffff');
   orb('eb_big', 28, '#ff8a2a', '#fff4d0');
   orb('eb_blue', 18, '#4d8bff', '#ffffff');
+  orb('eb_green', 18, '#5aff9a', '#ffffff');
+  make(scene, 'elaser', 64, 12, (c) => {
+    c.save();
+    c.shadowColor = '#5ab8ff';
+    c.shadowBlur = 8;
+    c.fillStyle = 'rgba(20,0,30,0.9)';
+    c.fillRect(2, 2, 60, 8);
+    c.fillStyle = '#5ab8ff';
+    c.fillRect(4, 3, 56, 6);
+    c.fillStyle = '#ffffff';
+    c.fillRect(6, 5, 52, 2);
+    c.restore();
+  });
 
   // ---- enemies ----
   make(scene, 'dart', 52, 36, (c) => {
@@ -200,6 +236,142 @@ export function buildTextures(scene: Phaser.Scene) {
     neon(c, 'rgba(255,210,60,0.55)', 1, 3);
     radial(c, 22, 40, 9, [[0, '#ffffff'], [0.4, '#ff8a2a'], [1, 'rgba(255,138,42,0)']]);
     for (const y of [20, 60]) radial(c, 80, y, 5, [[0, '#ffffff'], [0.5, '#ffd23c'], [1, 'rgba(255,210,60,0)']]);
+  });
+
+  make(scene, 'fan', 40, 40, (c) => {
+    c.save();
+    c.translate(20, 20);
+    for (let i = 0; i < 4; i++) {
+      c.rotate(Math.PI / 2);
+      poly(c, [[0, -3], [16, -6], [12, 4], [0, 3]]);
+      c.fillStyle = '#2a1206';
+      c.fill();
+      neon(c, '#ff9a3c', 1.5, 5);
+    }
+    c.restore();
+    radial(c, 20, 20, 6, [[0, '#ffffff'], [0.5, '#ffb03c'], [1, 'rgba(255,154,60,0)']]);
+  });
+  make(scene, 'turret', 44, 30, (c) => {
+    c.beginPath();
+    c.moveTo(4, 30);
+    c.lineTo(8, 16);
+    c.arc(22, 16, 14, Math.PI, 0);
+    c.lineTo(40, 30);
+    c.closePath();
+    c.fillStyle = '#10221c';
+    c.fill();
+    neon(c, '#5aff9a', 1.5, 5);
+    radial(c, 22, 16, 5, [[0, '#ffffff'], [0.5, '#5aff9a'], [1, 'rgba(90,255,154,0)']]);
+  });
+  make(scene, 'barrel', 30, 10, (c) => {
+    c.fillStyle = '#10221c';
+    c.fillRect(2, 2, 26, 6);
+    c.strokeStyle = '#5aff9a';
+    c.lineWidth = 1.5;
+    c.strokeRect(2, 2, 26, 6);
+  });
+  make(scene, 'mine', 40, 40, (c) => {
+    c.save();
+    c.translate(20, 20);
+    c.beginPath();
+    for (let i = 0; i < 16; i++) {
+      const r = i % 2 === 0 ? 18 : 10;
+      const a = (i / 16) * Math.PI * 2;
+      c.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    c.closePath();
+    c.fillStyle = '#2a0610';
+    c.fill();
+    neon(c, '#ff4d6d', 1.5, 5);
+    c.restore();
+    radial(c, 20, 20, 7, [[0, '#ffffff'], [0.5, '#ff4d6d'], [1, 'rgba(255,77,109,0)']]);
+  });
+
+  // ---- stage 2 boss: barrier core battleship ----
+  make(scene, 'boss2', 320, 200, (c) => {
+    const hull = [[30, 100], [70, 60], [130, 34], [250, 24], [310, 50], [300, 100], [310, 150], [250, 176], [130, 166], [70, 140]];
+    poly(c, hull);
+    const g = c.createLinearGradient(0, 24, 0, 176);
+    g.addColorStop(0, '#08222c');
+    g.addColorStop(0.5, '#030b10');
+    g.addColorStop(1, '#08222c');
+    c.fillStyle = g;
+    c.fill();
+    neon(c, '#5ab8ff', 2.5, 10);
+    // channel leading to the core
+    c.beginPath();
+    c.rect(36, 86, 120, 28);
+    c.fillStyle = '#010406';
+    c.fill();
+    neon(c, 'rgba(90,184,255,0.6)', 1, 3);
+    // wings and ports
+    for (const y of [50, 150]) {
+      poly(c, [[120, y - 14], [220, y - 18], [240, y], [220, y + 18], [120, y + 14]]);
+      c.fillStyle = 'rgba(90,184,255,0.08)';
+      c.fill();
+      neon(c, 'rgba(140,210,255,0.8)', 1.2, 4);
+    }
+    for (const y of [50, 76, 124, 150]) radial(c, 112, y, 6, [[0, '#ffffff'], [0.5, '#5ab8ff'], [1, 'rgba(90,184,255,0)']]);
+    for (const y of [60, 140]) radial(c, 306, y, 12, [[0, '#ffffff'], [0.3, '#5ab8ff'], [1, 'rgba(90,184,255,0)']]);
+  });
+  make(scene, 'barrier', 14, 40, (c) => {
+    c.beginPath();
+    c.roundRect(2, 2, 10, 36, 3);
+    c.fillStyle = '#0c2a3a';
+    c.fill();
+    neon(c, '#9fe8ff', 1.5, 6);
+  });
+  make(scene, 'boss2_core', 48, 48, (c) => {
+    radial(c, 24, 24, 24, [[0, '#ffffff'], [0.3, '#c8f4ff'], [0.55, '#3c9aff'], [1, 'rgba(0,40,120,0)']]);
+  });
+
+  // ---- stage 3 boss: fortress eye with orbiting pods ----
+  make(scene, 'boss3_shell', 240, 240, (c) => {
+    c.beginPath();
+    c.arc(120, 120, 92, 0, Math.PI * 2);
+    c.fillStyle = '#12040a';
+    c.fill();
+    neon(c, '#ff4d6d', 3, 12);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      c.beginPath();
+      c.moveTo(120 + Math.cos(a) * 64, 120 + Math.sin(a) * 64);
+      c.lineTo(120 + Math.cos(a) * 92, 120 + Math.sin(a) * 92);
+      neon(c, 'rgba(255,120,150,0.6)', 1.2, 3);
+    }
+    c.beginPath();
+    c.arc(120, 120, 64, 0, Math.PI * 2);
+    c.fillStyle = '#05010a';
+    c.fill();
+    neon(c, '#ff9ab0', 1.5, 5);
+  });
+  make(scene, 'boss3_eye', 112, 112, (c) => {
+    radial(c, 56, 56, 56, [[0, '#ffffff'], [0.18, '#ffe0a0'], [0.3, '#ff3c5a'], [0.55, '#5a0018'], [0.9, 'rgba(40,0,10,0.9)'], [1, 'rgba(0,0,0,0)']]);
+  });
+  make(scene, 'boss3_lid', 130, 130, (c) => {
+    c.beginPath();
+    c.arc(65, 65, 60, 0, Math.PI * 2);
+    c.fillStyle = '#1c0810';
+    c.fill();
+    c.beginPath();
+    c.moveTo(5, 65);
+    c.lineTo(125, 65);
+    neon(c, '#ff4d6d', 2, 8);
+    c.beginPath();
+    c.arc(65, 65, 60, 0, Math.PI * 2);
+    neon(c, '#ff9ab0', 1.5, 5);
+  });
+  make(scene, 'boss3_pod', 48, 48, (c) => {
+    const pts: number[][] = [];
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      pts.push([24 + Math.cos(a) * 20, 24 + Math.sin(a) * 20]);
+    }
+    poly(c, pts);
+    c.fillStyle = '#2a0610';
+    c.fill();
+    neon(c, '#ffb03c', 2, 7);
+    radial(c, 24, 24, 9, [[0, '#ffffff'], [0.4, '#ffb03c'], [1, 'rgba(255,176,60,0)']]);
   });
 
   // ---- boss ----
@@ -319,6 +491,56 @@ export function buildTextures(scene: Phaser.Scene) {
   stars('stars_far', 140, 0.6, 7, 0.6);
   stars('stars_mid', 60, 1.0, 13, 0.8);
   stars('stars_near', 18, 1.6, 29, 1);
+  const skyTex = (key: string, stops: [number, string][]) =>
+    make(scene, key, 8, H, (c, w, h) => {
+      const g = c.createLinearGradient(0, 0, 0, h);
+      for (const [o, col] of stops) g.addColorStop(o, col);
+      c.fillStyle = g;
+      c.fillRect(0, 0, w, h);
+    });
+  skyTex('sky_cave', [[0, '#010a0c'], [0.5, '#03202a'], [1, '#010a0c']]);
+  skyTex('sky_fort', [[0, '#0a0103'], [0.55, '#1e0408'], [0.8, '#2c0a0a'], [1, '#080102']]);
+  // distant crystal spires for the cave
+  make(scene, 'crystals', 1024, H, (c, w, h) => {
+    const r = rng(77);
+    for (let i = 0; i < 30; i++) {
+      const x = r() * w;
+      const bw = 20 + r() * 50;
+      const bh = 80 + r() * 200;
+      const up = r() > 0.5;
+      const y0 = up ? h : 0;
+      const y1 = up ? h - bh : bh;
+      poly(c, [[x - bw / 2, y0], [x, y1], [x + bw / 2, y0]]);
+      const g = c.createLinearGradient(0, y0, 0, y1);
+      g.addColorStop(0, 'rgba(10,60,70,0.9)');
+      g.addColorStop(1, 'rgba(40,200,190,0.18)');
+      c.fillStyle = g;
+      c.fill();
+      neon(c, 'rgba(90,255,220,0.35)', 1, 4);
+    }
+  });
+  // giant girders and hull plates behind the fortress
+  make(scene, 'girders', 1024, H, (c, w, h) => {
+    const r = rng(91);
+    for (let i = 0; i < 9; i++) {
+      const x = i * 120 + r() * 40;
+      const bw = 40 + r() * 50;
+      c.fillStyle = 'rgba(60,10,16,0.55)';
+      c.fillRect(x, 0, bw, h);
+      c.strokeStyle = 'rgba(255,80,100,0.18)';
+      c.lineWidth = 1;
+      for (let y = 0; y < h; y += 36) {
+        c.beginPath();
+        c.moveTo(x, y);
+        c.lineTo(x + bw, y + 36);
+        c.moveTo(x + bw, y);
+        c.lineTo(x, y + 36);
+        c.stroke();
+      }
+      c.strokeStyle = 'rgba(255,90,110,0.35)';
+      c.strokeRect(x, -2, bw, h + 4);
+    }
+  });
   make(scene, 'mountains', 1024, 120, (c, w, h) => {
     const r = rng(42);
     const pts: number[][] = [[0, h]];

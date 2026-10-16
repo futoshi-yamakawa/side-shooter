@@ -18,6 +18,6 @@ export class BootScene extends Phaser.Scene {
       // fall back to the system font
     }
     const params = new URLSearchParams(location.search);
-    this.scene.start('Title', { boss: params.has('boss'), startAt: Number(params.get('t')) || 0 });
+    this.scene.start('Title', { boss: params.has('boss'), startAt: Number(params.get('t')) || 0, stage: Number(params.get('stage')) || 1 });
   }
 }

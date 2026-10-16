@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { DEPTH, FONT, W } from '../config';
 
-export type PlayerStats = { power: number; options: number; speed: number; shield: boolean; bombs: number };
+import type { Loadout } from '../entities/player';
+
+export type PlayerStats = Loadout;
 
 const text = (scene: Phaser.Scene, x: number, y: number, s: string, size: number, color = '#e8fbff') =>
   scene.add
@@ -40,7 +42,7 @@ export class Hud {
     this.hiText.setText('HI ' + Math.max(this.hi, score).toString().padStart(8, '0'));
     const meter = (n: number, max: number) => '■'.repeat(n) + '□'.repeat(max - n);
     this.powerText.setText(
-      `PWR ${meter(st.power, 3)}   OPT ${meter(st.options, 3)}   SPD ${meter(st.speed + 1, 3)}${st.shield ? '   GUARD' : ''}`,
+      `${st.weapon === 'laser' ? 'LASER' : 'SPREAD'} ${meter(st.power, 3)}   MSL ${meter(st.missile, 2)}   OPT ${meter(st.options, 3)}${st.shield ? '   GUARD' : ''}`,
     );
     while (this.bombIcons.length < st.bombs) {
       this.bombIcons.push(this.scene.add.image(0, 0, 'cap_B').setScale(0.45).setDepth(DEPTH.hud));

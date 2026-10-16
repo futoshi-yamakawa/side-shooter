@@ -5,6 +5,7 @@ export const FONT = '"Orbitron", "Helvetica Neue", Arial, sans-serif';
 
 export const DEPTH = {
   bg: 0,
+  terrain: 10,
   items: 20,
   enemies: 30,
   boss: 28,

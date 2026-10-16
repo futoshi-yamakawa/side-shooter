@@ -1,16 +1,19 @@
 import Phaser from 'phaser';
-import { COLOR, DEPTH, H, W } from '../config';
-import type { GameScene } from '../scenes/GameScene';
+import { COLOR, DEPTH, H, W } from '../../config';
+import type { GameScene } from '../../scenes/GameScene';
+import type { BossLike, HitResult } from './types';
 
-export const BOSS_NAME = 'HEXA-GARGANT';
 const MAX_HP = 1100;
 
 type State = 'enter' | 'p1' | 'shift' | 'p2' | 'dying' | 'dead';
 
-// Mid-boss. Phase 1 fires fans and turret streams with armour on; at 50% HP
+// Stage 1 boss. Phase 1 fires fans and turret streams with armour on; at 50% HP
 // the armour blows off, the core turns red and it switches to a rotating
 // spiral with dash attacks.
-export class Boss {
+export class HexaBoss implements BossLike {
+  readonly name = 'HEXA-GARGANT';
+  readonly color = COLOR.boss;
+  readonly size = { w: 110, h: 80 };
   body: Phaser.GameObjects.Image;
   core: Phaser.GameObjects.Image;
   hp = MAX_HP;
@@ -42,6 +45,27 @@ export class Boss {
   }
   get vulnerable() {
     return this.state === 'p1' || this.state === 'p2';
+  }
+  get active() {
+    return this.state !== 'enter' && this.state !== 'dying' && this.state !== 'dead';
+  }
+
+  hitTest(x: number, y: number, dmg: number): HitResult {
+    const dx = this.x - x;
+    const dy = this.y - y;
+    // elliptical hull: wide, a bit shorter
+    if ((dx * dx) / (120 * 120) + (dy * dy) / (85 * 85) >= 1) return null;
+    return this.damage(dmg) ? 'hit' : 'block';
+  }
+
+  touches(x: number, y: number) {
+    const dx = this.x - x;
+    const dy = this.y - y;
+    return (dx * dx) / (100 * 100) + (dy * dy) / (70 * 70) < 1;
+  }
+
+  bomb(dmg: number) {
+    this.damage(dmg);
   }
 
   enter(onArrive: () => void) {

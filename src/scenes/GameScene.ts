@@ -5,19 +5,28 @@ import { Background } from '../systems/background';
 import { Fx } from '../systems/fx';
 import { Hud } from '../systems/hud';
 import { Juice } from '../systems/juice';
-import { BulletPool } from '../entities/bullets';
-import { Player } from '../entities/player';
-import { Capsule } from '../entities/capsule';
+import { Terrain } from '../systems/terrain';
 import { Controls } from '../systems/controls';
+import { BulletPool, Bullet } from '../entities/bullets';
+import { Player, Loadout } from '../entities/player';
+import { Capsule } from '../entities/capsule';
 import { Enemy, EnemyKind, EnemyParams } from '../entities/enemy';
-import { Boss, BOSS_NAME } from '../entities/boss';
-import { STAGE1 } from '../stage/stage1';
+import type { BossLike } from '../entities/bosses/types';
+import { STAGES, StageDef } from '../stage/stages';
 
 type Star = Phaser.GameObjects.Image & { vx: number; vy: number; t: number };
 
 type Mode = 'play' | 'warning' | 'boss' | 'clear' | 'over';
 
+// What survives from one stage into the next.
+export type Carry = { score: number; lives: number; loadout: Loadout };
+
+export type GameData = { stage?: number; carry?: Carry; boss?: boolean; startAt?: number };
+
 const HI_KEY = 'side-shooter.hi';
+// Frame-time cap. ?maxdt= raises it so automated playtests on slow headless
+// renderers still advance at roughly real time.
+const MAX_DT = Number(new URLSearchParams(location.search).get('maxdt')) || 1 / 20;
 
 export class GameScene extends Phaser.Scene {
   sfx!: AudioEngine;
@@ -27,38 +36,45 @@ export class GameScene extends Phaser.Scene {
   player!: Player;
   pBullets!: BulletPool;
   eBullets!: BulletPool;
+  terrain: Terrain | null = null;
+  private def!: StageDef;
+  private stageNo = 1;
   private bg!: Background;
   private enemies: Enemy[] = [];
   private stars: Star[] = [];
   private capsules: Capsule[] = [];
   private groups = new Map<number, { left: number; escaped: boolean }>();
-  private paused = false;
-  private pauseUi: Phaser.GameObjects.GameObject[] = [];
-  private boss: Boss | null = null;
+  private boss: BossLike | null = null;
   private mode: Mode = 'play';
   private stageT = 0;
   private waveIdx = 0;
   private score = 0;
   private lives = 3;
   private hi = 0;
+  private paused = false;
+  private pauseUi: Phaser.GameObjects.GameObject[] = [];
+  private retryReady = false;
   private controls!: Controls;
 
   constructor() {
     super('Game');
   }
 
-  create(data: { boss?: boolean; startAt?: number }) {
+  create(data: GameData) {
+    this.stageNo = Phaser.Math.Clamp(data?.stage ?? 1, 1, STAGES.length);
+    this.def = STAGES[this.stageNo - 1];
     this.enemies = [];
     this.stars = [];
     this.capsules = [];
     this.groups.clear();
-    this.paused = false;
     this.boss = null;
     this.mode = 'play';
     this.stageT = 0;
     this.waveIdx = 0;
-    this.score = 0;
-    this.lives = 3;
+    this.paused = false;
+    this.retryReady = false;
+    this.score = data?.carry?.score ?? 0;
+    this.lives = data?.carry?.lives ?? 3;
     try {
       this.hi = Number(localStorage.getItem(HI_KEY)) || 0;
     } catch {
@@ -66,32 +82,40 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.sfx = audio();
-    this.bg = new Background(this);
+    this.bg = new Background(this, this.def.theme);
+    this.terrain = null;
+    if (this.def.terrain) {
+      const t = this.def.terrain;
+      this.terrain = new Terrain(this, t.style, t.seed, t.speed);
+      // walls grow in after the stage title
+      this.tweens.add({ targets: this.terrain, env: 1, duration: 3500, delay: 1200, ease: 'Sine.InOut' });
+    }
     this.fx = new Fx(this);
     this.pBullets = new BulletPool(this, DEPTH.pBullets, Phaser.BlendModes.ADD);
     this.eBullets = new BulletPool(this, DEPTH.eBullets);
     this.player = new Player(this);
+    if (data?.carry) this.player.applyLoadout(data.carry.loadout);
     this.hud = new Hud(this, this.hi);
     this.juice = new Juice(this);
 
     this.cameras.main.postFX.addVignette(0.5, 0.5, 0.95, 0.35);
-    this.cameras.main.fadeIn(500);
+    this.cameras.main.fadeIn(600);
 
     this.controls = new Controls(this);
     const onPad = () => this.hud.toast('GAMEPAD CONNECTED');
     window.addEventListener('gamepadconnected', onPad);
     this.events.once('shutdown', () => window.removeEventListener('gamepadconnected', onPad));
 
-    this.sfx.music.play('stage');
-    this.hud.banner('STAGE 1', 'NEON OUTSKIRTS', 1800);
+    this.sfx.music.play(this.def.music);
+    this.hud.banner(this.def.name, this.def.sub, 1800);
 
     if (data?.startAt) {
       this.stageT = data.startAt;
-      while (this.waveIdx < STAGE1.length - 1 && STAGE1[this.waveIdx].t < data.startAt) this.waveIdx++;
+      while (this.waveIdx < this.def.waves.length - 1 && this.def.waves[this.waveIdx].t < data.startAt) this.waveIdx++;
     }
     if (data?.boss) {
       // Debug / demo shortcut: ?boss in the URL jumps straight to the fight.
-      this.waveIdx = STAGE1.length;
+      this.waveIdx = this.def.waves.length;
       this.player.power = 3;
       this.time.delayedCall(800, () => this.startWarning());
     }
@@ -100,7 +124,7 @@ export class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------- loop
 
   update(_time: number, delta: number) {
-    const realDt = Math.min(delta / 1000, 1 / 20);
+    const realDt = Math.min(delta / 1000, MAX_DT);
     const ctl = this.controls;
     ctl.update();
     if (ctl.pressed.pause && (this.mode === 'play' || this.mode === 'boss' || this.mode === 'warning')) this.togglePause();
@@ -119,12 +143,12 @@ export class GameScene extends Phaser.Scene {
     this.player.setTimeScale(scale);
 
     this.bg.update(dt);
+    this.terrain?.update(dt);
 
     if (this.mode === 'play') {
       this.stageT += dt;
-      while (this.waveIdx < STAGE1.length && STAGE1[this.waveIdx].t <= this.stageT) {
-        STAGE1[this.waveIdx++].run(this);
-      }
+      const waves = this.def.waves;
+      while (this.waveIdx < waves.length && waves[this.waveIdx].t <= this.stageT) waves[this.waveIdx++].run(this);
     }
 
     this.player.update(dt, ctl.state);
@@ -134,7 +158,20 @@ export class GameScene extends Phaser.Scene {
     for (const e of this.enemies) e.tick(dt, this);
     this.boss?.update(dt);
     this.updateItems(dt);
-    for (const c of this.capsules) c.update(dt);
+    for (const c of this.capsules) {
+      c.update(dt);
+      // capsules bounce off the terrain instead of sinking into it
+      if (this.terrain && this.terrain.solid(c.x, c.y, 16)) {
+        const floor = this.terrain.floorAt(c.x);
+        if (c.y > floor - 16) {
+          c.y = floor - 16;
+          c.vy = -120;
+        } else {
+          c.y = this.terrain.ceilAt(c.x) + 16;
+          c.vy = 40;
+        }
+      }
+    }
     this.collide();
     this.enemies = this.enemies.filter((e) => {
       if (e.dead || e.offscreen) {
@@ -144,17 +181,9 @@ export class GameScene extends Phaser.Scene {
       }
       return true;
     });
-
     this.capsules = this.capsules.filter((c) => (c.gone ? (c.destroy(), false) : true));
 
-    const p = this.player;
-    this.hud.update(
-      realDt,
-      this.score,
-      Math.max(0, this.lives - 1),
-      { power: p.power, options: p.optionCount, speed: p.speedLv, shield: p.shield, bombs: p.bombs },
-      this.boss ?? undefined,
-    );
+    this.hud.update(realDt, this.score, Math.max(0, this.lives - 1), this.player.loadout, this.boss ?? undefined);
 
     if ((this.mode === 'over' || this.mode === 'clear') && this.retryReady && ctl.pressed.confirm) {
       this.retryReady = false;
@@ -163,7 +192,6 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Title'));
     }
   }
-  private retryReady = false;
 
   private togglePause() {
     this.paused = !this.paused;
@@ -191,6 +219,7 @@ export class GameScene extends Phaser.Scene {
 
   spawn(kind: EnemyKind, p: EnemyParams) {
     if (this.mode !== 'play') return;
+    if (kind === 'turret' && !this.terrain) return;
     const e = new Enemy(this, kind, p);
     if (p.group) this.group(e);
     this.enemies.push(e);
@@ -205,7 +234,8 @@ export class GameScene extends Phaser.Scene {
 
   shoot(x: number, y: number, vx: number, vy: number, tex = 'eb', r = 6) {
     if (this.mode === 'clear') return;
-    return this.eBullets.spawn(tex, x, y, vx, vy, r);
+    const k = this.def.rank;
+    return this.eBullets.spawn(tex, x, y, vx * k, vy * k, r);
   }
 
   aimed(x: number, y: number, speed: number, n: number, spread: number, tex = 'eb', r = 6) {
@@ -227,48 +257,77 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- collisions
 
+  // A piercing bullet hits each target once; a normal one is used up.
+  private consume(b: Bullet, target: object) {
+    if (!b.pierce) {
+      this.pBullets.kill(b);
+      return true;
+    }
+    if (b.hitList.includes(target)) return false;
+    b.hitList.push(target);
+    return true;
+  }
+
   private collide() {
     const p = this.player;
+    const terrain = this.terrain;
 
     this.pBullets.each((b) => {
+      if (terrain && !b.step && terrain.solid(b.x, b.y)) {
+        this.fx.spark(b.x, b.y, 0xffffff, 2, { min: 120, max: 240 });
+        this.pBullets.kill(b);
+        return;
+      }
       for (const c of this.capsules) {
         const rr = c.r + b.r;
-        if ((c.x - b.x) ** 2 + (c.y - b.y) ** 2 < rr * rr) {
-          this.pBullets.kill(b);
+        if ((c.x - b.x) ** 2 + (c.y - b.y) ** 2 < rr * rr && this.consume(b, c)) {
           c.shot();
           this.fx.spark(b.x, b.y, c.info.tint, 2, { min: 150, max: 210 });
-          return;
+          if (!b.active) return;
         }
       }
       for (const e of this.enemies) {
         if (e.dead) continue;
         const rr = e.r + b.r;
-        if (Math.abs(e.x - b.x) < rr && (e.x - b.x) ** 2 + (e.y - b.y) ** 2 < rr * rr) {
-          this.pBullets.kill(b);
+        if (Math.abs(e.x - b.x) < rr && (e.x - b.x) ** 2 + (e.y - b.y) ** 2 < rr * rr && this.consume(b, e)) {
           this.hitEnemy(e, b.dmg, b.x, b.y);
-          return;
+          if (!b.active) return;
         }
       }
       const boss = this.boss;
-      if (boss && boss.state !== 'dead' && boss.state !== 'enter') {
-        const dx = boss.x - b.x;
-        const dy = boss.y - b.y;
-        // elliptical hull: wide, a bit shorter
-        if ((dx * dx) / (120 * 120) + (dy * dy) / (85 * 85) < 1) {
+      if (boss && boss.active && !b.hitList.includes(boss)) {
+        const res = boss.hitTest(b.x, b.y, b.dmg);
+        if (res === 'hit') {
+          this.consume(b, boss);
+          this.score += 10;
+          this.fx.spark(b.x, b.y, boss.color, 3, { min: 150, max: 210 });
+          this.sfx.hit();
+        } else if (res === 'block') {
           this.pBullets.kill(b);
-          if (boss.damage(b.dmg)) {
-            this.score += 10;
-            this.fx.spark(b.x, b.y, COLOR.boss, 3, { min: 150, max: 210 });
-            this.sfx.hit();
-          } else {
-            this.fx.spark(b.x, b.y, 0xffffff, 2, { min: 150, max: 210 });
-            this.sfx.armor();
-          }
+          this.fx.spark(b.x, b.y, 0xffffff, 2, { min: 150, max: 210 });
+          this.sfx.armor();
         }
       }
     });
 
-    if (!p.alive || p.invuln > 0 || this.mode === 'clear') return;
+    if (terrain) {
+      this.eBullets.each((b) => {
+        if (terrain.solid(b.x, b.y)) this.eBullets.kill(b);
+      });
+    }
+
+    if (!p.alive || this.mode === 'clear') return;
+
+    // Walls kill regardless of the guard, but not while respawning.
+    if (terrain && terrain.solid(p.x, p.y, 7)) {
+      // While respawning, or while the walls are still growing in, they push instead of kill.
+      if (p.invuln > 0 || (this.mode === 'play' && this.stageT < 6)) p.sprite.y = Phaser.Math.Clamp(p.y, terrain.ceilAt(p.x) + 14, terrain.floorAt(p.x) - 14);
+      else {
+        this.killPlayer(true);
+        return;
+      }
+    }
+    if (p.invuln > 0) return;
 
     let hit = false;
     this.eBullets.each((b) => {
@@ -282,12 +341,8 @@ export class GameScene extends Phaser.Scene {
         if (!e.dead && (e.x - p.x) ** 2 + (e.y - p.y) ** 2 < rr * rr) hit = true;
       }
     }
-    if (!hit && this.boss && this.boss.state !== 'dead') {
-      const dx = this.boss.x - p.x;
-      const dy = this.boss.y - p.y;
-      if ((dx * dx) / (100 * 100) + (dy * dy) / (70 * 70) < 1) hit = true;
-    }
-    if (hit) this.killPlayer();
+    if (!hit && this.boss && this.boss.active && this.boss.touches(p.x, p.y)) hit = true;
+    if (hit) this.killPlayer(false);
   }
 
   private hitEnemy(e: Enemy, dmg: number, x: number, y: number) {
@@ -301,16 +356,10 @@ export class GameScene extends Phaser.Scene {
   private killEnemy(e: Enemy) {
     e.dead = true;
     this.score += e.score;
-    if (e.kind === 'dart') {
+    if (e.kind === 'dart' || e.kind === 'fan') {
       this.fx.explosion(e.x, e.y, 's', e.color);
       this.sfx.explodeSmall();
-    } else if (e.kind === 'pod') {
-      this.fx.explosion(e.x, e.y, 'm', e.color);
-      this.juice.stop(30);
-      this.juice.shake(120, 0.004);
-      this.sfx.explodeSmall();
-      this.hud.popup(e.x, e.y - 20, e.score);
-    } else {
+    } else if (e.kind === 'carrier') {
       this.fx.explosion(e.x, e.y, 'l', e.color);
       this.time.delayedCall(90, () => this.fx.explosion(e.x + 30, e.y - 14, 'm', e.color));
       this.juice.stop(70);
@@ -318,7 +367,15 @@ export class GameScene extends Phaser.Scene {
       this.juice.flash(120, 0xfff0c0, 0.25);
       this.sfx.explodeMid();
       this.hud.popup(e.x, e.y - 30, e.score);
+    } else {
+      this.fx.explosion(e.x, e.y, 'm', e.color);
+      this.juice.stop(30);
+      this.juice.shake(120, 0.004);
+      this.sfx.explodeSmall();
+      this.hud.popup(e.x, e.y - 20, e.score);
     }
+    // mines take revenge with a ring of bullets
+    if (e.kind === 'mine') this.ring(e.x, e.y, 10, 130, Math.random(), 'eb');
     if (e.p.drop) this.dropCapsule(e.x, e.y);
     if (e.p.group) {
       const g = this.group(e);
@@ -330,15 +387,16 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private killPlayer() {
+  private killPlayer(wall: boolean) {
     const p = this.player;
-    if (p.absorbHit()) {
+    if (!wall && p.absorbHit()) {
       this.sfx.shieldBreak();
       this.juice.stop(60);
       this.juice.shake(160, 0.006);
       this.cancelBulletsNear(p.x, p.y, 140);
       return;
     }
+    p.shield = false;
     p.hit();
     this.lives--;
     this.fx.explosion(p.x, p.y, 'l', COLOR.player);
@@ -347,7 +405,7 @@ export class GameScene extends Phaser.Scene {
     this.juice.shake(400, 0.014);
     this.juice.flash(220, 0xffffff, 0.5);
     this.sfx.death();
-    // Clearing nearby bullets on death keeps respawns fair.
+    // Clearing bullets on death keeps respawns fair.
     this.cancelBullets(false);
     if (this.lives <= 0) {
       this.gameOver();
@@ -388,9 +446,9 @@ export class GameScene extends Phaser.Scene {
     this.fx.bloom(p.x, p.y, 6, 500, 0xff7ad8);
     this.cancelBullets(true);
     for (const e of this.enemies) if (!e.dead) this.hitEnemy(e, 40, e.x, e.y);
-    if (this.boss?.vulnerable) {
-      this.boss.damage(90);
-      this.fx.explosion(this.boss.x - 40, this.boss.y, 'l', COLOR.boss);
+    if (this.boss?.active) {
+      this.boss.bomb(90);
+      this.fx.explosion(this.boss.x - 40, this.boss.y, 'l', this.boss.color);
     }
   }
 
@@ -411,10 +469,18 @@ export class GameScene extends Phaser.Scene {
   private collectCapsule(c: Capsule) {
     const p = this.player;
     const info = c.info;
-    const gained = { P: () => p.powerUp(), O: () => p.addOption(), S: () => p.speedUp(), G: () => p.addShield(), B: () => p.addBomb() }[info.key]();
+    const gained = {
+      P: () => p.powerUp(),
+      L: () => p.switchWeapon(),
+      M: () => p.addMissile(),
+      O: () => p.addOption(),
+      G: () => p.addShield(),
+      B: () => p.addBomb(),
+    }[info.key]();
     if (gained) {
       this.sfx.powerup();
-      this.hud.popup(p.x, p.y - 34, info.label, info.color);
+      const label = info.key === 'L' ? (p.weapon === 'laser' ? 'LASER' : 'SPREAD SHOT') : info.label;
+      this.hud.popup(p.x, p.y - 34, label, info.color);
       this.score += 500;
     } else {
       // Already maxed: pay out score instead.
@@ -462,11 +528,13 @@ export class GameScene extends Phaser.Scene {
     if (this.mode !== 'play') return;
     this.mode = 'warning';
     this.sfx.music.fadeOut(1.2);
+    // open the arena up: walls shrink to a thin border for the fight
+    if (this.terrain) this.tweens.killTweensOf(this.terrain);
+    if (this.terrain) this.tweens.add({ targets: this.terrain, env: 0.35, duration: 3000, ease: 'Sine.InOut' });
     this.time.delayedCall(900, () => this.warningSequence());
   }
 
   private warningSequence() {
-    const s = this;
     this.sfx.warning();
     const red = this.add.rectangle(W / 2, H / 2, W, H, 0xff0030, 0).setDepth(DEPTH.overlay - 1);
     this.tweens.add({ targets: red, fillAlpha: 0.22, duration: 250, yoyo: true, repeat: 5 });
@@ -494,7 +562,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(DEPTH.overlay)
       .setAlpha(0);
     const sub = this.add
-      .text(W / 2, H / 2 + 44, 'A HUGE BATTLESHIP IS APPROACHING FAST', { fontFamily: FONT, fontSize: '14px', color: '#ffc0c8', fontStyle: '500' })
+      .text(W / 2, H / 2 + 44, this.def.warning, { fontFamily: FONT, fontSize: '14px', color: '#ffc0c8', fontStyle: '500' })
       .setOrigin(0.5)
       .setDepth(DEPTH.overlay)
       .setAlpha(0);
@@ -508,14 +576,14 @@ export class GameScene extends Phaser.Scene {
         duration: 300,
         onComplete: () => [red, bandTop, bandBot, m1, m2, big, sub].forEach((o) => o.destroy()),
       });
-      s.bossEntrance();
+      this.bossEntrance();
     });
   }
 
   private bossEntrance() {
     this.mode = 'boss';
     this.enemies.forEach((e) => (e.dead = true));
-    const boss = new Boss(this);
+    const boss = this.def.boss(this);
     this.boss = boss;
     this.sfx.rumble(2.6);
     this.juice.shake(2600, 0.004);
@@ -523,8 +591,8 @@ export class GameScene extends Phaser.Scene {
     boss.enter(() => {
       this.juice.shake(250, 0.012);
       this.sfx.impact();
-      this.fx.ring(boss.x, boss.y, 3, COLOR.boss, 600);
-      this.hud.showBoss(BOSS_NAME);
+      this.fx.ring(boss.x, boss.y, 3, boss.color, 600);
+      this.hud.showBoss(boss.name);
       this.sfx.music.play('boss');
     });
   }
@@ -538,12 +606,13 @@ export class GameScene extends Phaser.Scene {
     this.juice.slow(2200, 0.3);
     this.juice.flash(200, 0xffffff, 0.7);
     this.sfx.impact();
+    const { w, h } = boss.size;
     // Chain of explosions across the hull, then the big one.
     for (let i = 0; i < 14; i++) {
       this.time.delayedCall(i * 110, () => {
-        const x = boss.x + Phaser.Math.Between(-110, 110);
-        const y = boss.y + Phaser.Math.Between(-80, 80);
-        this.fx.explosion(x, y, i % 3 === 0 ? 'l' : 'm', i % 2 ? COLOR.boss : 0xffb040);
+        const x = boss.x + Phaser.Math.Between(-w, w);
+        const y = boss.y + Phaser.Math.Between(-h, h);
+        this.fx.explosion(x, y, i % 3 === 0 ? 'l' : 'm', i % 2 ? boss.color : 0xffb040);
         this.juice.shake(150, 0.008);
         this.sfx.explodeSmall();
       });
@@ -553,22 +622,43 @@ export class GameScene extends Phaser.Scene {
       this.juice.flash(900, 0xffffff, 1);
       this.juice.shake(900, 0.03);
       this.fx.explosion(boss.x, boss.y, 'xl', 0xffffff);
-      this.fx.explosion(boss.x, boss.y, 'xl', COLOR.boss);
+      this.fx.explosion(boss.x, boss.y, 'xl', boss.color);
       this.fx.ring(boss.x, boss.y, 6, 0xffffff, 1200);
       this.sfx.explodeBig();
       boss.destroy();
       this.hud.hideBoss();
-      this.score += 50000;
+      this.score += this.bossBonus;
       this.tweens.add({ targets: this.bg, speed: 1, duration: 1500 });
       this.time.delayedCall(1600, () => this.stageClear());
     });
   }
 
+  private get bossBonus() {
+    return 50000 * this.stageNo;
+  }
+
   private stageClear() {
     this.sfx.clear();
     this.saveHi();
-    this.hud.banner('STAGE CLEAR', `BOSS BONUS 50000   ·   SCORE ${this.score}`, 60000, '#3cf0ff');
-    this.time.delayedCall(1800, () => this.showRetry('PRESS Z TO RETURN TO TITLE'));
+    const last = this.stageNo >= STAGES.length;
+    if (last) {
+      this.hud.banner('ALL STAGES CLEAR', `CONGRATULATIONS   ·   FINAL SCORE ${this.score}`, 60000, '#ffe08a');
+      this.time.delayedCall(2200, () => this.showRetry('PRESS Z / A TO RETURN TO TITLE'));
+      return;
+    }
+    this.hud.banner(`${this.def.name} CLEAR`, `BOSS BONUS ${this.bossBonus}   ·   SCORE ${this.score}`, 3200, '#3cf0ff');
+    // Fly off to the right, then carry score, lives and equipment into the next stage.
+    this.time.delayedCall(2600, () => {
+      const p = this.player;
+      p.controllable = false;
+      this.tweens.add({ targets: p.sprite, x: W + 120, duration: 900, ease: 'Cubic.In' });
+      this.sfx.music.fadeOut(0.8);
+      this.time.delayedCall(700, () => this.cameras.main.fade(600, 0, 0, 0, true));
+      this.cameras.main.once('camerafadeoutcomplete', () => {
+        const carry: Carry = { score: this.score, lives: Math.max(1, this.lives), loadout: p.loadout };
+        this.scene.restart({ stage: this.stageNo + 1, carry } satisfies GameData);
+      });
+    });
   }
 
   private gameOver() {
@@ -576,8 +666,8 @@ export class GameScene extends Phaser.Scene {
     this.sfx.music.fadeOut(1.5);
     this.saveHi();
     this.time.delayedCall(1200, () => {
-      this.hud.banner('GAME OVER', `SCORE ${this.score}`, 60000, '#ff4d6d');
-      this.time.delayedCall(1200, () => this.showRetry('PRESS Z TO CONTINUE'));
+      this.hud.banner('GAME OVER', `${this.def.name}   ·   SCORE ${this.score}`, 60000, '#ff4d6d');
+      this.time.delayedCall(1200, () => this.showRetry('PRESS Z / A TO RETURN TO TITLE'));
     });
   }
 

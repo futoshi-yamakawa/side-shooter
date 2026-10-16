@@ -7,6 +7,12 @@ export class Bullet extends Phaser.GameObjects.Image {
   r = 4;
   dmg = 1;
   spin = 0;
+  t = 0;
+  // Piercing shots (laser) remember what they already hit so each target takes one hit.
+  pierce = false;
+  hitList: object[] = [];
+  // Custom motion (missiles); return false to remove the bullet.
+  step: ((b: Bullet, dt: number) => boolean) | null = null;
 }
 
 // Fixed pool with a free list: the boss can put a few hundred bullets on
@@ -31,6 +37,10 @@ export class BulletPool {
     b.r = r;
     b.dmg = 1;
     b.spin = 0;
+    b.t = 0;
+    b.pierce = false;
+    b.hitList.length = 0;
+    b.step = null;
     b.rotation = Math.atan2(vy, vx);
     return b;
   }
@@ -44,6 +54,11 @@ export class BulletPool {
   update(dt: number) {
     for (const b of this.items) {
       if (!b.active) continue;
+      b.t += dt;
+      if (b.step && !b.step(b, dt)) {
+        this.kill(b);
+        continue;
+      }
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       if (b.spin) b.rotation += b.spin * dt;

@@ -2,8 +2,13 @@ import Phaser from 'phaser';
 import { COLOR, DEPTH, H, W } from '../config';
 import type { GameScene } from '../scenes/GameScene';
 import type { ControlState } from '../systems/controls';
+import type { Bullet } from './bullets';
 
-const SPEEDS = [300, 360, 420];
+export type Weapon = 'spread' | 'laser';
+export type Loadout = { power: number; weapon: Weapon; missile: number; options: number; shield: boolean; bombs: number };
+
+const SPEED = 330;
+const MISSILE_INTERVAL = 0.42;
 const FOCUS_SPEED = 160;
 const FIRE_INTERVAL = 0.07;
 export const MAX_OPTIONS = 3;
@@ -26,10 +31,12 @@ export class Player {
   controllable = true;
   invuln = 0;
   power = 1;
-  speedLv = 0;
+  weapon: Weapon = 'spread';
+  missile = 0;
   shield = false;
   bombs = 2;
   private fireCd = 0;
+  private missileCd = 0;
   private bank = 0;
   private shotIndex = 0;
   private t = 0;
@@ -78,7 +85,7 @@ export class Player {
     if (!this.alive) return;
     const s = this.sprite;
     if (this.controllable) {
-      const sp = input.focus ? FOCUS_SPEED : SPEEDS[this.speedLv];
+      const sp = input.focus ? FOCUS_SPEED : SPEED;
       let { x, y } = input;
       const len = Math.hypot(x, y);
       if (len > 1) {
@@ -97,6 +104,11 @@ export class Player {
         this.fire();
         this.fireCd += FIRE_INTERVAL;
         if (this.fireCd < 0) this.fireCd = 0;
+      }
+      this.missileCd -= dt;
+      if (input.fire && this.missile > 0 && this.missileCd <= 0) {
+        this.fireMissiles();
+        this.missileCd = MISSILE_INTERVAL;
       }
     }
 
@@ -144,6 +156,12 @@ export class Player {
     const v = 1250;
     this.shotIndex++;
     const alt = this.shotIndex % 2 === 0 ? 1 : -1;
+    if (this.weapon === 'laser') {
+      this.fireLaser(x, y, 1);
+      for (const o of this.options) this.fireLaser(o.x + 14, o.y, 0.7);
+      g.sfx.laser();
+      return;
+    }
     g.pBullets.spawn('pshot', x, y - 6, v, 0, 8);
     g.pBullets.spawn('pshot', x, y + 6, v, 0, 8);
     if (this.power >= 2) {
@@ -165,6 +183,57 @@ export class Player {
     g.sfx.shot();
   }
 
+  // Piercing beam. Power widens it and raises damage; it passes through
+  // targets, hitting each once.
+  private fireLaser(x: number, y: number, k: number) {
+    const lv = this.power;
+    const b = this.g.pBullets.spawn('plaser', x + 30, y, 1700, 0, 6 + lv * 2);
+    b.pierce = true;
+    b.dmg = (0.9 + lv * 0.55) * k;
+    b.setScale(1, (0.8 + lv * 0.45) * k);
+  }
+
+  private fireMissiles() {
+    const sources = [{ x: this.x, y: this.y }, ...this.options.map((o) => ({ x: o.x, y: o.y }))];
+    for (const s of sources) {
+      this.missileFrom(s.x, s.y + 8, 1);
+      if (this.missile >= 2) this.missileFrom(s.x, s.y - 8, -1);
+    }
+  }
+
+  // Gradius-style missile: drops (or climbs) at an angle, then hugs the
+  // terrain surface; with no terrain it levels out into a forward glide.
+  private missileFrom(x: number, y: number, dir: 1 | -1) {
+    const g = this.g;
+    const b = g.pBullets.spawn('missile', x, y, 200, 280 * dir, 7);
+    b.dmg = 3;
+    b.setFlipY(dir < 0);
+    b.step = (m: Bullet, dt: number) => {
+      const t = g.terrain;
+      const surface = t ? (dir > 0 ? t.floorAt(m.x) : t.ceilAt(m.x)) : dir > 0 ? Infinity : -Infinity;
+      const onSurface = dir > 0 ? m.y + 6 >= surface : m.y - 6 <= surface;
+      if (t && t.env > 0.05 && onSurface) {
+        // ride the surface; a wall in front ends it
+        const ahead = dir > 0 ? t.floorAt(m.x + 10) : t.ceilAt(m.x + 10);
+        if (Math.abs(ahead - surface) > 24) {
+          g.fx.explosion(m.x, m.y, 's', 0xffd23c);
+          return false;
+        }
+        m.vx = 380;
+        m.vy = 0;
+        m.y = surface - 6 * dir;
+        m.rotation = 0;
+      } else if (m.t > 0.3 && (!t || t.env <= 0.05)) {
+        m.vx = Math.min(m.vx + 900 * dt, 460);
+        m.vy = Phaser.Math.Linear(m.vy, 90 * dir, Math.min(1, dt * 4));
+        m.rotation = Math.atan2(m.vy, m.vx) * 0.6;
+      } else {
+        m.rotation = Math.atan2(m.vy, m.vx) * 0.6;
+      }
+      return true;
+    };
+  }
+
   // Returns true when the guard soaked the hit and the ship survives.
   absorbHit() {
     if (!this.shield) return false;
@@ -182,9 +251,9 @@ export class Player {
     this.muzzle.setVisible(false);
     this.shieldImg.setVisible(false);
     this.trail.stop();
-    // Losing a life costs one level of power, one option and the speed-ups.
+    // Losing a life costs one level of power, one missile level and one option.
     this.power = Math.max(1, this.power - 1);
-    this.speedLv = 0;
+    this.missile = Math.max(0, this.missile - 1);
     const lost = this.options.pop();
     if (lost) {
       this.g.fx.explosion(lost.x, lost.y, 's', 0xff7ad8);
@@ -194,7 +263,8 @@ export class Player {
 
   respawn() {
     const s = this.sprite;
-    s.setPosition(-60, H / 2).setVisible(true).setAlpha(1).setRotation(0).setScale(1);
+    const y = this.g.terrain ? this.g.terrain.gapMid(160) : H / 2;
+    s.setPosition(-60, y).setVisible(true).setAlpha(1).setRotation(0).setScale(1);
     this.resetHistory();
     this.alive = true;
     this.controllable = false;
@@ -226,10 +296,31 @@ export class Player {
     return true;
   }
 
-  speedUp() {
-    if (this.speedLv >= SPEEDS.length - 1) return false;
-    this.speedLv++;
+  // Toggles between spread shot and laser; power level carries over.
+  switchWeapon() {
+    this.weapon = this.weapon === 'spread' ? 'laser' : 'spread';
+    this.g.fx.ring(this.x, this.y, 0.9, this.weapon === 'laser' ? 0x3cf0ff : 0x7dff9a, 400);
     return true;
+  }
+
+  addMissile() {
+    if (this.missile >= 2) return false;
+    this.missile++;
+    return true;
+  }
+
+  get loadout(): Loadout {
+    return { power: this.power, weapon: this.weapon, missile: this.missile, options: this.options.length, shield: this.shield, bombs: this.bombs };
+  }
+
+  // Restores equipment carried over from the previous stage.
+  applyLoadout(l: Loadout) {
+    this.power = l.power;
+    this.weapon = l.weapon;
+    this.missile = l.missile;
+    this.shield = l.shield;
+    this.bombs = l.bombs;
+    for (let i = 0; i < l.options; i++) this.addOption();
   }
 
   addShield() {
