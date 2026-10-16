@@ -3,13 +3,14 @@ import { H } from '../config';
 
 export type CapsuleKey = 'P' | 'L' | 'M' | 'O' | 'G' | 'B';
 
+// Power-up gauge slots, in gauge order. Each also has a cap_<key> icon.
 export const CAPSULES: { key: CapsuleKey; color: string; tint: number; label: string }[] = [
-  { key: 'P', color: '#7dff9a', tint: 0x7dff9a, label: 'POWER UP' },
-  { key: 'L', color: '#3cf0ff', tint: 0x3cf0ff, label: 'LASER' },
+  { key: 'P', color: '#7dff9a', tint: 0x7dff9a, label: 'POWER' },
   { key: 'M', color: '#ffd23c', tint: 0xffd23c, label: 'MISSILE' },
+  { key: 'L', color: '#3cf0ff', tint: 0x3cf0ff, label: 'LASER' },
   { key: 'O', color: '#ff7ad8', tint: 0xff7ad8, label: 'OPTION' },
   { key: 'G', color: '#c8a0ff', tint: 0xc8a0ff, label: 'GUARD' },
-  { key: 'B', color: '#ff6a5a', tint: 0xff6a5a, label: 'BOMB +1' },
+  { key: 'B', color: '#ff6a5a', tint: 0xff6a5a, label: 'BOMB' },
 ];
 
 type Draw =(ctx: CanvasRenderingContext2D, w: number, h: number) => void;
@@ -416,7 +417,7 @@ export function buildTextures(scene: Phaser.Scene) {
   });
 
   // ---- items ----
-  // TwinBee-style capsules: shooting one cycles it through these types.
+  // Icons for the gauge slots (the bomb one doubles as the HUD bomb icon).
   for (const t of CAPSULES) {
     make(scene, 'cap_' + t.key, 40, 40, (c) => {
       radial(c, 20, 20, 20, [[0, t.color + '55'], [1, t.color + '00']]);
@@ -434,6 +435,36 @@ export function buildTextures(scene: Phaser.Scene) {
       c.fillText(t.key, 20, 21);
     });
   }
+  // Gradius-style capsule: one per pickup, advances the gauge cursor.
+  make(scene, 'cap_gauge', 40, 40, (c) => {
+    radial(c, 20, 20, 20, [[0, 'rgba(255,140,40,0.55)'], [1, 'rgba(255,140,40,0)']]);
+    c.beginPath();
+    c.ellipse(20, 20, 13, 10, 0, 0, Math.PI * 2);
+    const gr = c.createLinearGradient(0, 10, 0, 30);
+    gr.addColorStop(0, '#ffe0a0');
+    gr.addColorStop(0.45, '#ff8a2a');
+    gr.addColorStop(1, '#a02a00');
+    c.fillStyle = gr;
+    c.fill();
+    neon(c, '#ffb050', 1.5, 6);
+    c.fillStyle = 'rgba(255,255,255,0.8)';
+    c.fillRect(11, 14, 18, 2);
+  });
+  make(scene, 'cap_1up', 48, 40, (c) => {
+    radial(c, 24, 20, 22, [[0, 'rgba(90,255,140,0.6)'], [1, 'rgba(90,255,140,0)']]);
+    c.beginPath();
+    c.roundRect(5, 8, 38, 24, 10);
+    c.fillStyle = '#062a12';
+    c.fill();
+    neon(c, '#5aff8c', 2, 10);
+    c.fillStyle = '#ffffff';
+    c.font = 'bold 14px Arial';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.shadowColor = '#5aff8c';
+    c.shadowBlur = 6;
+    c.fillText('1UP', 24, 21);
+  });
   make(scene, 'option', 28, 28, (c) => {
     radial(c, 14, 14, 14, [[0, '#ffffff'], [0.3, '#ffd0ff'], [0.55, 'rgba(255,90,220,0.7)'], [1, 'rgba(255,90,220,0)']]);
     c.beginPath();

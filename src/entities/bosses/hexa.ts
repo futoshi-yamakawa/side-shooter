@@ -94,7 +94,7 @@ export class HexaBoss implements BossLike {
     } else if (this.state === 'p2') {
       if (!this.dashing) b.y = this.baseY + Math.sin(this.t * 1.1) * 150;
       this.spiral += dt;
-      if (this.spiral > 0.075) {
+      if (this.spiral > 0.12) {
         this.spiral = 0;
         const a = this.t * 2.2;
         for (let k = 0; k < 3; k++) {

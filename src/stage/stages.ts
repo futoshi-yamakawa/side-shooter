@@ -81,7 +81,7 @@ export const STAGES: StageDef[] = [
     theme: 'cave',
     music: 'stage2',
     terrain: { style: 'cave', seed: 1234, speed: 70 },
-    rank: 1.1,
+    rank: 1.05,
     warning: 'BARRIER CORE DETECTED. AIM FOR THE CHANNEL',
     boss: (g) => new BarrierCore(g),
     waves: [
@@ -109,7 +109,7 @@ export const STAGES: StageDef[] = [
     theme: 'fortress',
     music: 'stage3',
     terrain: { style: 'fortress', seed: 4321, speed: 90 },
-    rank: 1.2,
+    rank: 1.1,
     warning: 'FORTRESS CORE IS WAKING UP',
     boss: (g) => new Overmind(g),
     waves: [

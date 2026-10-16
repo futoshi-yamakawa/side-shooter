@@ -6,6 +6,7 @@ export type ControlState = {
   fire: boolean;
   focus: boolean;
   bomb: boolean;
+  powerup: boolean;
   pause: boolean;
   confirm: boolean;
 };
@@ -19,6 +20,7 @@ const DEADZONE = 0.28;
 // - "standard" mapping (XInput mode, or DirectInput mode that the browser
 //   recognises): A=0 B=1 X=2 Y=3 LB=4 RB=5 LT=6 RT=7 Back=8 Start=9, D-pad 12-15.
 // - raw DirectInput (mapping ""): X=0 A=1 B=2 Y=3, D-pad reported as a hat axis.
+// Either way: A fires, X/Y spend the power-up gauge, B bombs.
 export class Controls {
   private keys: Record<string, Phaser.Input.Keyboard.Key>;
   private prev: ControlState = blank();
@@ -41,7 +43,8 @@ export class Controls {
     if (k.DOWN.isDown || k.S.isDown) s.y += 1;
     s.fire = k.Z.isDown || k.SPACE.isDown;
     s.focus = k.SHIFT.isDown;
-    s.bomb = k.X.isDown || k.C.isDown;
+    s.bomb = k.X.isDown;
+    s.powerup = k.C.isDown;
     s.pause = k.ESC.isDown || k.P.isDown;
     s.confirm = k.Z.isDown || k.ENTER.isDown || k.SPACE.isDown;
 
@@ -59,14 +62,15 @@ export class Controls {
     // A tap shorter than one frame never shows up in isDown; JustDown latches it.
     const jd = Phaser.Input.Keyboard.JustDown;
     if (jd(k.Z) || jd(k.ENTER) || jd(k.SPACE)) this.pressed.confirm = true;
-    if (jd(k.X) || jd(k.C)) this.pressed.bomb = true;
+    if (jd(k.X)) this.pressed.bomb = true;
+    if (jd(k.C)) this.pressed.powerup = true;
     if (jd(k.ESC) || jd(k.P)) this.pressed.pause = true;
     this.prev = this.state = s;
   }
 }
 
 function blank(): ControlState {
-  return { x: 0, y: 0, fire: false, focus: false, bomb: false, pause: false, confirm: false };
+  return { x: 0, y: 0, fire: false, focus: false, bomb: false, powerup: false, pause: false, confirm: false };
 }
 
 function firstPad(): Gamepad | null {
@@ -89,8 +93,9 @@ function readPad(p: Gamepad, s: ControlState) {
     if (b(15)) s.x += 1;
     if (b(12)) s.y -= 1;
     if (b(13)) s.y += 1;
-    s.fire ||= b(0) || b(2);
-    s.bomb ||= b(1) || b(3);
+    s.fire ||= b(0);
+    s.powerup ||= b(2) || b(3);
+    s.bomb ||= b(1);
     s.focus ||= b(4) || b(5) || b(6) || b(7);
     s.pause ||= b(9);
     s.confirm ||= b(0) || b(9);
@@ -98,8 +103,9 @@ function readPad(p: Gamepad, s: ControlState) {
   }
 
   // Raw DirectInput layout.
-  s.fire ||= b(1) || b(0);
-  s.bomb ||= b(2) || b(3);
+  s.fire ||= b(1);
+  s.powerup ||= b(0) || b(3);
+  s.bomb ||= b(2);
   s.focus ||= b(4) || b(5) || b(6) || b(7);
   s.pause ||= b(9);
   s.confirm ||= b(1) || b(9);

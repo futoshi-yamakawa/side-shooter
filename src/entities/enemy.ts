@@ -138,7 +138,7 @@ const BEHAVIOR: Record<EnemyKind, (e: Enemy, dt: number, g: GameScene) => void> 
     b.rotation = Phaser.Math.Angle.RotateTo(b.rotation, aim, dt * 3);
     e.fireT -= dt;
     if (e.x < W - 40 && e.x > 80 && e.fireT <= 0) {
-      e.fireT = 1.7;
+      e.fireT = 2.3;
       const sp = 210;
       g.shoot(e.x + Math.cos(b.rotation) * 26, e.y + Math.sin(b.rotation) * 26, Math.cos(b.rotation) * sp, Math.sin(b.rotation) * sp, 'eb_green');
     }
@@ -180,7 +180,7 @@ const BEHAVIOR: Record<EnemyKind, (e: Enemy, dt: number, g: GameScene) => void> 
       e.x += (tx - e.x) * Math.min(1, dt * 3);
       e.fireT -= dt;
       if (e.t > 0.8 && e.fireT <= 0) {
-        e.fireT = 0.85;
+        e.fireT = 1.25;
         g.aimed(e.x, e.y, 210, 3, 0.22, 'eb');
       }
     } else {
@@ -201,7 +201,7 @@ const BEHAVIOR: Record<EnemyKind, (e: Enemy, dt: number, g: GameScene) => void> 
       const cycle = Math.floor(e.t / 1.3) % 2;
       if (cycle === 0) g.ring(e.x - 10, e.y, 16, 150, e.t, 'eb_blue');
       else g.aimed(e.x - 40, e.y, 250, 3, 0.18, 'eb_big', 10);
-      e.fireT = 1.3;
+      e.fireT = 1.9;
     }
   },
 };

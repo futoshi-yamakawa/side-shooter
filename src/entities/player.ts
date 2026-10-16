@@ -5,7 +5,7 @@ import type { ControlState } from '../systems/controls';
 import type { Bullet } from './bullets';
 
 export type Weapon = 'spread' | 'laser';
-export type Loadout = { power: number; weapon: Weapon; missile: number; options: number; shield: boolean; bombs: number };
+export type Loadout = { power: number; weapon: Weapon; missile: number; options: number; shield: boolean; bombs: number; gauge: number };
 
 const SPEED = 330;
 const MISSILE_INTERVAL = 0.42;
@@ -13,10 +13,17 @@ const FOCUS_SPEED = 160;
 const FIRE_INTERVAL = 0.07;
 export const MAX_OPTIONS = 3;
 export const MAX_BOMBS = 5;
+export const MAX_POWER = 5;
+export const GAUGE_SIZE = 6;
 // Options trail the ship along its recent path, this many recorded steps apart.
 const OPTION_SPACING = 7;
 const TRAIL_STEP = 6;
 const HISTORY = OPTION_SPACING * MAX_OPTIONS + 1;
+
+// Whether gauge slot i (CAPSULES order) can still be taken with this loadout.
+export function slotOpen(i: number, l: Loadout) {
+  return [l.power < MAX_POWER, l.missile < 2, true, l.options < MAX_OPTIONS, !l.shield, l.bombs < MAX_BOMBS][i];
+}
 
 export class Player {
   sprite: Phaser.GameObjects.Image;
@@ -35,6 +42,8 @@ export class Player {
   missile = 0;
   shield = false;
   bombs = 2;
+  // Power-up gauge cursor: -1 when empty, else the lit slot (see CAPSULES order).
+  gauge = -1;
   private fireCd = 0;
   private missileCd = 0;
   private bank = 0;
@@ -162,8 +171,11 @@ export class Player {
       g.sfx.laser();
       return;
     }
-    g.pBullets.spawn('pshot', x, y - 6, v, 0, 8);
-    g.pBullets.spawn('pshot', x, y + 6, v, 0, 8);
+    // Lv4 hardens the main pair; lv5 adds a wide third pair and twin option shots.
+    for (const dy of [-6, 6]) {
+      const b = g.pBullets.spawn('pshot', x, y + dy, v, 0, 8);
+      if (this.power >= 4) b.setScale(1.35).dmg = 1.5;
+    }
     if (this.power >= 2) {
       for (const a of [-0.09, 0.09]) {
         const b = g.pBullets.spawn('pshot2', x - 6, y + a * 40, Math.cos(a) * v, Math.sin(a) * v, 8);
@@ -176,9 +188,17 @@ export class Player {
         b.dmg = 0.7;
       }
     }
+    if (this.power >= 5) {
+      for (const a of [-0.38, 0.38]) {
+        const b = g.pBullets.spawn('pshot2', x - 14, y + a * 20, Math.cos(a) * v, Math.sin(a) * v, 8);
+        b.dmg = 0.7;
+      }
+    }
     for (const o of this.options) {
-      const b = g.pBullets.spawn('pshot', o.x + 12, o.y, v, 0, 8);
-      b.dmg = 0.8;
+      for (const dy of this.power >= 5 ? [-5, 5] : [0]) {
+        const b = g.pBullets.spawn('pshot', o.x + 12, o.y + dy, v, 0, 8);
+        b.dmg = 0.8;
+      }
     }
     g.sfx.shot();
   }
@@ -189,8 +209,8 @@ export class Player {
     const lv = this.power;
     const b = this.g.pBullets.spawn('plaser', x + 30, y, 1700, 0, 6 + lv * 2);
     b.pierce = true;
-    b.dmg = (0.9 + lv * 0.55) * k;
-    b.setScale(1, (0.8 + lv * 0.45) * k);
+    b.dmg = (0.9 + lv * 0.5) * k;
+    b.setScale(1, (0.8 + lv * 0.36) * k);
   }
 
   private fireMissiles() {
@@ -251,7 +271,9 @@ export class Player {
     this.muzzle.setVisible(false);
     this.shieldImg.setVisible(false);
     this.trail.stop();
-    // Losing a life costs one level of power, one missile level and one option.
+    // Losing a life costs one level of power, one missile level, one option
+    // and whatever was lit on the gauge.
+    this.gauge = -1;
     this.power = Math.max(1, this.power - 1);
     this.missile = Math.max(0, this.missile - 1);
     const lost = this.options.pop();
@@ -279,8 +301,26 @@ export class Player {
     });
   }
 
+  // Gauge: each capsule moves the cursor one slot right, wrapping around.
+  advanceGauge() {
+    this.gauge = (this.gauge + 1) % GAUGE_SIZE;
+  }
+
+  slotOpen(i: number) {
+    return slotOpen(i, this.loadout);
+  }
+
+  // Spends the lit slot. Returns its index, or -1 when nothing happened.
+  activateGauge() {
+    const i = this.gauge;
+    if (i < 0 || !this.slotOpen(i)) return -1;
+    [() => this.powerUp(), () => this.addMissile(), () => this.switchWeapon(), () => this.addOption(), () => this.addShield(), () => this.addBomb()][i]();
+    this.gauge = -1;
+    return i;
+  }
+
   powerUp() {
-    if (this.power >= 3) return false;
+    if (this.power >= MAX_POWER) return false;
     this.power++;
     this.g.fx.ring(this.x, this.y, 0.9, COLOR.player, 400);
     return true;
@@ -310,7 +350,7 @@ export class Player {
   }
 
   get loadout(): Loadout {
-    return { power: this.power, weapon: this.weapon, missile: this.missile, options: this.options.length, shield: this.shield, bombs: this.bombs };
+    return { power: this.power, weapon: this.weapon, missile: this.missile, options: this.options.length, shield: this.shield, bombs: this.bombs, gauge: this.gauge };
   }
 
   // Restores equipment carried over from the previous stage.
@@ -320,6 +360,7 @@ export class Player {
     this.missile = l.missile;
     this.shield = l.shield;
     this.bombs = l.bombs;
+    this.gauge = l.gauge ?? -1;
     for (let i = 0; i < l.options; i++) this.addOption();
   }
 

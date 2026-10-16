@@ -1,60 +1,34 @@
 import Phaser from 'phaser';
 import { DEPTH, H } from '../config';
-import { CAPSULES } from '../systems/textures';
 import type { GameScene } from '../scenes/GameScene';
 
-const HITS_TO_CYCLE = 6;
+export type CapsuleKind = 'gauge' | '1up';
 
-// TwinBee-style bell: each hit knocks it upward, and every few hits it
-// changes type, so the player picks the item by deciding when to stop shooting.
+// Gradius-style pickup. A gauge capsule advances the power-up cursor; a 1UP
+// capsule adds a life. Both pop out of the wreck, then drift left on a bob.
 export class Capsule extends Phaser.GameObjects.Image {
-  kindIdx = 0;
-  vx = -40;
-  vy = -140;
+  vx = -55;
+  vy = -60;
   r = 16;
-  private hits = 0;
-  private cooldown = 0;
   private t = 0;
   gone = false;
 
-  constructor(private g: GameScene, x: number, y: number) {
-    super(g, x, y, 'cap_P');
+  constructor(g: GameScene, x: number, y: number, readonly kind: CapsuleKind = 'gauge') {
+    super(g, x, y, kind === '1up' ? 'cap_1up' : 'cap_gauge');
     g.add.existing(this);
     this.setDepth(DEPTH.items);
-  }
-
-  get info() {
-    return CAPSULES[this.kindIdx];
+    this.setScale(0.4);
+    g.tweens.add({ targets: this, scale: 1, duration: 260, ease: 'Back.Out' });
   }
 
   update(dt: number) {
     this.t += dt;
-    this.cooldown -= dt;
-    this.vy = Math.min(this.vy + 160 * dt, 70);
+    this.vy *= Math.exp(-dt * 2.5);
     this.x += this.vx * dt;
-    this.y += this.vy * dt;
-    if (this.y < 30) {
-      this.y = 30;
-      this.vy = Math.abs(this.vy) * 0.3;
-    }
+    this.y += (this.vy + Math.cos(this.t * 3) * 22) * dt;
+    this.y = Phaser.Math.Clamp(this.y, 30, H - 30);
     this.rotation = Math.sin(this.t * 3) * 0.15;
-    if (this.x < -40 || this.y > H + 40) this.gone = true;
-  }
-
-  shot() {
-    this.vy = Math.max(this.vy - 70, -170);
-    this.x += 3;
-    if (this.cooldown > 0) return;
-    this.hits++;
-    if (this.hits >= HITS_TO_CYCLE) {
-      this.hits = 0;
-      this.cooldown = 0.25;
-      this.kindIdx = (this.kindIdx + 1) % CAPSULES.length;
-      this.setTexture('cap_' + this.info.key);
-      this.g.fx.ring(this.x, this.y, 0.5, this.info.tint, 250);
-      this.g.sfx.bell();
-      this.setScale(1.4);
-      this.g.tweens.add({ targets: this, scale: 1, duration: 200, ease: 'Back.Out' });
-    }
+    if (this.kind === '1up') this.setAlpha(0.75 + Math.sin(this.t * 12) * 0.25);
+    if (this.x < -40) this.gone = true;
   }
 }

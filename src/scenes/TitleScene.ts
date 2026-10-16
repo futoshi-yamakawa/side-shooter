@@ -60,7 +60,7 @@ export class TitleScene extends Phaser.Scene {
     this.tweens.add({ targets: press, alpha: 0.25, duration: 700, yoyo: true, repeat: -1 });
 
     this.add
-      .text(W / 2, H - 52, 'KEYBOARD   MOVE: ARROWS / WASD   SHOT: Z (HOLD)   BOMB: X   SLOW: SHIFT   PAUSE: ESC', {
+      .text(W / 2, H - 52, 'KEYBOARD   MOVE: ARROWS / WASD   SHOT: Z   POWER UP: C   BOMB: X   SLOW: SHIFT   PAUSE: ESC', {
         fontFamily: FONT,
         fontSize: '11px',
         color: '#9fb4c8',
@@ -68,7 +68,7 @@ export class TitleScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(DEPTH.hud);
     this.add
-      .text(W / 2, H - 32, 'GAMEPAD   MOVE: STICK / D-PAD   SHOT: A (HOLD)   BOMB: B   SLOW: RB   PAUSE: START', {
+      .text(W / 2, H - 32, 'GAMEPAD   MOVE: STICK / D-PAD   SHOT: A   POWER UP: X   BOMB: B   SLOW: RB   PAUSE: START', {
         fontFamily: FONT,
         fontSize: '11px',
         color: '#9fb4c8',

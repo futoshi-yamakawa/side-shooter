@@ -9,7 +9,8 @@ import { Terrain } from '../systems/terrain';
 import { Controls } from '../systems/controls';
 import { BulletPool, Bullet } from '../entities/bullets';
 import { Player, Loadout } from '../entities/player';
-import { Capsule } from '../entities/capsule';
+import { Capsule, CapsuleKind } from '../entities/capsule';
+import { CAPSULES } from '../systems/textures';
 import { Enemy, EnemyKind, EnemyParams } from '../entities/enemy';
 import type { BossLike } from '../entities/bosses/types';
 import { STAGES, StageDef } from '../stage/stages';
@@ -27,6 +28,15 @@ const HI_KEY = 'side-shooter.hi';
 // Frame-time cap. ?maxdt= raises it so automated playtests on slow headless
 // renderers still advance at roughly real time.
 const MAX_DT = Number(new URLSearchParams(location.search).get('maxdt')) || 1 / 20;
+
+// Rings fire this fraction of the bullets their pattern asks for.
+const BULLET_DENSITY = 0.65;
+// Score extends, then one every EXTEND_EVERY after the last.
+const EXTENDS = [100_000, 300_000];
+const EXTEND_EVERY = 300_000;
+const MAX_LIVES = 9;
+// The Nth carrier destroyed in a stage leaves a 1UP instead of a gauge capsule.
+const ONE_UP_CARRIER = 2;
 
 export class GameScene extends Phaser.Scene {
   sfx!: AudioEngine;
@@ -50,6 +60,8 @@ export class GameScene extends Phaser.Scene {
   private waveIdx = 0;
   private score = 0;
   private lives = 3;
+  private nextExtend = 0;
+  private carrierKills = 0;
   private hi = 0;
   private paused = false;
   private pauseUi: Phaser.GameObjects.GameObject[] = [];
@@ -75,6 +87,8 @@ export class GameScene extends Phaser.Scene {
     this.retryReady = false;
     this.score = data?.carry?.score ?? 0;
     this.lives = data?.carry?.lives ?? 3;
+    this.nextExtend = extendAfter(this.score);
+    this.carrierKills = 0;
     try {
       this.hi = Number(localStorage.getItem(HI_KEY)) || 0;
     } catch {
@@ -153,6 +167,11 @@ export class GameScene extends Phaser.Scene {
 
     this.player.update(dt, ctl.state);
     if (ctl.pressed.bomb) this.bomb();
+    if (ctl.pressed.powerup) this.usePowerUp();
+    if (this.score >= this.nextExtend) {
+      this.nextExtend = extendAfter(this.score);
+      this.addLife('EXTEND');
+    }
     this.pBullets.update(dt);
     this.eBullets.update(dt);
     for (const e of this.enemies) e.tick(dt, this);
@@ -238,7 +257,12 @@ export class GameScene extends Phaser.Scene {
     return this.eBullets.spawn(tex, x, y, vx * k, vy * k, r);
   }
 
+  // Wide fans are thinned (5→3, 9→5) but keep their width, so the gaps
+  // between bullets open up instead of the pattern shrinking.
   aimed(x: number, y: number, speed: number, n: number, spread: number, tex = 'eb', r = 6) {
+    const m = n < 5 ? n : n - 2 * Math.floor((n - 1) / 4);
+    if (m > 1) spread *= (n - 1) / (m - 1);
+    n = m;
     const base = Math.atan2(this.player.y - y, this.player.x - x);
     for (let i = 0; i < n; i++) {
       const a = base + (i - (n - 1) / 2) * spread;
@@ -248,6 +272,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   ring(x: number, y: number, n: number, speed: number, offset: number, tex = 'eb', r = 6) {
+    n = Math.max(4, Math.round(n * BULLET_DENSITY));
     for (let i = 0; i < n; i++) {
       const a = offset + (i / n) * Math.PI * 2;
       this.shoot(x, y, Math.cos(a) * speed, Math.sin(a) * speed, tex, r);
@@ -277,14 +302,6 @@ export class GameScene extends Phaser.Scene {
         this.fx.spark(b.x, b.y, 0xffffff, 2, { min: 120, max: 240 });
         this.pBullets.kill(b);
         return;
-      }
-      for (const c of this.capsules) {
-        const rr = c.r + b.r;
-        if ((c.x - b.x) ** 2 + (c.y - b.y) ** 2 < rr * rr && this.consume(b, c)) {
-          c.shot();
-          this.fx.spark(b.x, b.y, c.info.tint, 2, { min: 150, max: 210 });
-          if (!b.active) return;
-        }
       }
       for (const e of this.enemies) {
         if (e.dead) continue;
@@ -376,7 +393,8 @@ export class GameScene extends Phaser.Scene {
     }
     // mines take revenge with a ring of bullets
     if (e.kind === 'mine') this.ring(e.x, e.y, 10, 130, Math.random(), 'eb');
-    if (e.p.drop) this.dropCapsule(e.x, e.y);
+    if (e.kind === 'carrier' && ++this.carrierKills === ONE_UP_CARRIER) this.dropCapsule(e.x, e.y, '1up');
+    else if (e.p.drop) this.dropCapsule(e.x, e.y);
     if (e.p.group) {
       const g = this.group(e);
       if (--g.left === 0 && !g.escaped) {
@@ -454,8 +472,8 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- items
 
-  private dropCapsule(x: number, y: number) {
-    this.capsules.push(new Capsule(this, Phaser.Math.Clamp(x, 60, W - 60), Phaser.Math.Clamp(y, 60, H - 60)));
+  private dropCapsule(x: number, y: number, kind: CapsuleKind = 'gauge') {
+    this.capsules.push(new Capsule(this, Phaser.Math.Clamp(x, 60, W - 60), Phaser.Math.Clamp(y, 60, H - 60), kind));
   }
 
   private dropStar(x: number, y: number) {
@@ -468,28 +486,47 @@ export class GameScene extends Phaser.Scene {
 
   private collectCapsule(c: Capsule) {
     const p = this.player;
-    const info = c.info;
-    const gained = {
-      P: () => p.powerUp(),
-      L: () => p.switchWeapon(),
-      M: () => p.addMissile(),
-      O: () => p.addOption(),
-      G: () => p.addShield(),
-      B: () => p.addBomb(),
-    }[info.key]();
-    if (gained) {
-      this.sfx.powerup();
-      const label = info.key === 'L' ? (p.weapon === 'laser' ? 'LASER' : 'SPREAD SHOT') : info.label;
-      this.hud.popup(p.x, p.y - 34, label, info.color);
-      this.score += 500;
-    } else {
-      // Already maxed: pay out score instead.
-      this.sfx.item();
-      this.hud.popup(p.x, p.y - 34, 5000, info.color);
-      this.score += 5000;
-    }
-    this.fx.ring(c.x, c.y, 0.8, info.tint, 300);
     c.gone = true;
+    if (c.kind === '1up') {
+      this.fx.ring(c.x, c.y, 1, 0x5aff8c, 350);
+      this.addLife('1UP');
+      return;
+    }
+    p.advanceGauge();
+    this.score += 100;
+    this.sfx.capsule();
+    this.fx.ring(c.x, c.y, 0.6, 0xff9a3c, 250);
+  }
+
+  // Spends the lit gauge slot (C key / X button).
+  private usePowerUp() {
+    const p = this.player;
+    if (!p.alive || !(this.mode === 'play' || this.mode === 'boss' || this.mode === 'warning')) return;
+    if (p.gauge < 0) return;
+    const i = p.activateGauge();
+    if (i < 0) {
+      this.sfx.armor();
+      return;
+    }
+    const info = CAPSULES[i];
+    const label = info.key === 'L' ? (p.weapon === 'laser' ? 'LASER' : 'SPREAD SHOT') : info.key === 'P' ? `POWER LV${p.power}` : info.label;
+    this.sfx.powerup();
+    this.hud.popup(p.x, p.y - 34, label, info.color);
+    this.hud.flashGauge(i);
+  }
+
+  private addLife(label: string) {
+    const p = this.player;
+    if (this.lives >= MAX_LIVES) {
+      this.score += 10000;
+      this.hud.popup(p.x, p.y - 34, 10000, '#5aff8c');
+      this.sfx.item();
+      return;
+    }
+    this.lives++;
+    this.sfx.oneUp();
+    this.hud.popup(p.x, p.y - 34, label, '#5aff8c');
+    this.hud.toast(label + '  LIFE +1');
   }
 
   private updateItems(dt: number) {
@@ -689,4 +726,11 @@ export class GameScene extends Phaser.Scene {
       // storage can be unavailable (private mode); the hi-score just won't persist
     }
   }
+}
+
+// Next score that grants a life, strictly above `score`.
+function extendAfter(score: number) {
+  for (const e of EXTENDS) if (e > score) return e;
+  const last = EXTENDS[EXTENDS.length - 1];
+  return last + (Math.floor((score - last) / EXTEND_EVERY) + 1) * EXTEND_EVERY;
 }

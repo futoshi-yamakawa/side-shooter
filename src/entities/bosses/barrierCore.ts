@@ -95,8 +95,8 @@ export class BarrierCore implements BossLike {
     const g = this.g;
     const b = this.body;
     const ports = [-50, -24, 24, 50];
-    for (let i = 0; i < 3; i++) {
-      g.time.delayedCall(i * 90, () => {
+    for (let i = 0; i < 2; i++) {
+      g.time.delayedCall(i * 110, () => {
         if (!this.active) return;
         for (const dy of ports) g.shoot(b.x - 54, b.y + dy, -560, 0, 'elaser', 5);
       });
@@ -110,7 +110,7 @@ export class BarrierCore implements BossLike {
     if (this.broken >= 3 && this.volley % 3 === 0) {
       g.time.delayedCall(600, () => this.active && g.ring(b.x + 40, b.y, 18, 160, this.t, 'eb'));
     }
-    this.atkT = Math.max(0.8, 1.7 - this.broken * 0.3);
+    this.atkT = Math.max(1.1, 2 - this.broken * 0.3);
   }
 
   hitTest(x: number, y: number, dmg: number): HitResult {

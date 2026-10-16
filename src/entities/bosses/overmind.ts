@@ -87,7 +87,7 @@ export class Overmind implements BossLike {
       if (p.hp <= 0 || this.state !== 'sealed') return;
       p.fireT -= dt;
       if (p.fireT <= 0) {
-        p.fireT = 1.5 + Math.random() * 0.6;
+        p.fireT = 2.1 + Math.random() * 0.8;
         g.aimed(p.img.x, p.img.y, 240, 1, 0, 'eb_big', 10);
       }
     });
@@ -99,25 +99,25 @@ export class Overmind implements BossLike {
         g.ring(s.x, s.y, 14, 140, this.t, 'eb');
       }
     } else if (this.state === 'open') {
-      // four-arm spiral, reversing direction every few seconds
+      // three-arm spiral, reversing direction every few seconds
       this.spiralT += dt;
-      if (this.spiralT > 0.09) {
+      if (this.spiralT > 0.15) {
         this.spiralT = 0;
         const dir = Math.floor(this.t / 4) % 2 === 0 ? 1 : -1;
         const a = this.t * 1.7 * dir;
-        for (let k = 0; k < 4; k++) {
-          const ang = a + (k * Math.PI) / 2;
+        for (let k = 0; k < 3; k++) {
+          const ang = a + (k * Math.PI * 2) / 3;
           g.shoot(s.x, s.y, Math.cos(ang) * 150, Math.sin(ang) * 150, 'eb', 6);
         }
       }
       this.atkT -= dt;
       if (this.atkT <= 0) {
-        this.atkT = 2.4;
-        for (let i = 0; i < 4; i++) {
+        this.atkT = 3;
+        for (let i = 0; i < 3; i++) {
           g.time.delayedCall(i * 120, () => {
             if (this.state !== 'open') return;
             const base = Math.atan2(g.player.y - s.y, g.player.x - s.x);
-            for (const off of [-0.3, -0.15, 0, 0.15, 0.3]) {
+            for (const off of [-0.3, 0, 0.3]) {
               const a = base + off;
               g.shoot(s.x + Math.cos(a) * 50, s.y + Math.sin(a) * 50, Math.cos(a) * 420, Math.sin(a) * 420, 'elaser', 5);
             }

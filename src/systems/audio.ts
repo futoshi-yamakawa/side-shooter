@@ -168,10 +168,14 @@ export class AudioEngine {
     this.osc('sawtooth', 2400, 900, 0.06, 0.02);
     this.osc('sine', 1800, 600, 0.06, 0.03);
   }
-  bell() {
+  // Short rising arpeggio for a gained life.
+  oneUp() {
     const t = this.now;
-    this.osc('sine', 1568, 1568, 0.25, 0.12, t);
-    this.osc('sine', 2093, 2093, 0.35, 0.08, t + 0.04);
+    [0, 7, 12, 19, 24].forEach((n, i) => this.osc('square', mtof(76 + n), mtof(76 + n), 0.1, 0.05, t + i * 0.07));
+  }
+  // Capsule pickup: a dry blip, distinct from the power-up chime.
+  capsule() {
+    this.osc('square', 880, 1320, 0.07, 0.05);
   }
   bomb() {
     const t = this.now;

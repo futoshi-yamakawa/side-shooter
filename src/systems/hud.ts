@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
-import { DEPTH, FONT, W } from '../config';
+import { DEPTH, FONT, H, W } from '../config';
+import { CAPSULES } from './textures';
 
-import type { Loadout } from '../entities/player';
+import { MAX_POWER, slotOpen, type Loadout } from '../entities/player';
 
 export type PlayerStats = Loadout;
 
@@ -10,6 +11,12 @@ const text = (scene: Phaser.Scene, x: number, y: number, s: string, size: number
     .text(x, y, s, { fontFamily: FONT, fontSize: `${size}px`, color, fontStyle: '700' })
     .setDepth(DEPTH.hud)
     .setScrollFactor(0);
+
+const SLOT_W = 92;
+const SLOT_H = 20;
+const SLOT_GAP = 4;
+const GAUGE_X = (W - (SLOT_W * 6 + SLOT_GAP * 5)) / 2;
+const GAUGE_Y = H - SLOT_H - 8;
 
 export class Hud {
   private scoreText: Phaser.GameObjects.Text;
@@ -24,6 +31,11 @@ export class Hud {
   private bossLag = 0;
   private bossFill = 0;
   private bossVisible = false;
+  private gaugeG: Phaser.GameObjects.Graphics;
+  private gaugeLabels: Phaser.GameObjects.Text[] = [];
+  private gaugeFlash = -1;
+  private gaugeFlashT = 0;
+  private t = 0;
 
   constructor(private scene: Phaser.Scene, private hi: number) {
     this.scoreText = text(scene, 20, 14, '', 18).setShadow(0, 0, '#3cf0ff', 8, true, true);
@@ -32,6 +44,10 @@ export class Hud {
     text(scene, 20, 83, 'BOMB', 11, '#ff8a7a');
     this.bossBar = scene.add.graphics().setDepth(DEPTH.hud);
     this.bossLabel = text(scene, W / 2, 60, '', 11, '#ff9ab0').setOrigin(0.5, 0).setAlpha(0);
+    this.gaugeG = scene.add.graphics().setDepth(DEPTH.hud);
+    CAPSULES.forEach((_, i) => {
+      this.gaugeLabels.push(text(scene, GAUGE_X + i * (SLOT_W + SLOT_GAP) + SLOT_W / 2, GAUGE_Y + SLOT_H / 2, '', 11).setOrigin(0.5));
+    });
   }
 
   update(dt: number, score: number, lives: number, st: PlayerStats, boss?: { hp: number; maxHp: number }) {
@@ -42,7 +58,7 @@ export class Hud {
     this.hiText.setText('HI ' + Math.max(this.hi, score).toString().padStart(8, '0'));
     const meter = (n: number, max: number) => '■'.repeat(n) + '□'.repeat(max - n);
     this.powerText.setText(
-      `${st.weapon === 'laser' ? 'LASER' : 'SPREAD'} ${meter(st.power, 3)}   MSL ${meter(st.missile, 2)}   OPT ${meter(st.options, 3)}${st.shield ? '   GUARD' : ''}`,
+      `${st.weapon === 'laser' ? 'LASER' : 'SPREAD'} ${meter(st.power, MAX_POWER)}   MSL ${meter(st.missile, 2)}   OPT ${meter(st.options, 3)}${st.shield ? '   GUARD' : ''}`,
     );
     while (this.bombIcons.length < st.bombs) {
       this.bombIcons.push(this.scene.add.image(0, 0, 'cap_B').setScale(0.45).setDepth(DEPTH.hud));
@@ -57,6 +73,36 @@ export class Hud {
     this.lifeIcons.forEach((ic, i) => ic.setPosition(36 + i * 28, 66));
 
     this.drawBoss(dt, boss);
+    this.drawGauge(dt, st);
+  }
+
+  // Gradius-style gauge along the bottom edge: the lit slot is filled, slots
+  // that can't be taken any more are dimmed.
+  private drawGauge(dt: number, st: PlayerStats) {
+    this.t += dt;
+    this.gaugeFlashT = Math.max(0, this.gaugeFlashT - dt);
+    const g = this.gaugeG;
+    g.clear();
+    CAPSULES.forEach((c, i) => {
+      const x = GAUGE_X + i * (SLOT_W + SLOT_GAP);
+      const open = slotOpen(i, st);
+      const lit = st.gauge === i;
+      const flash = this.gaugeFlash === i && this.gaugeFlashT > 0;
+      g.fillStyle(0x05080f, 0.7).fillRect(x, GAUGE_Y, SLOT_W, SLOT_H);
+      if (lit || flash) {
+        const pulse = flash ? 1 : 0.75 + Math.sin(this.t * 10) * 0.25;
+        g.fillStyle(open ? 0xff9a3c : 0x6a5040, pulse).fillRect(x, GAUGE_Y, SLOT_W, SLOT_H);
+      }
+      g.lineStyle(1, lit ? 0xffe0a0 : open ? 0x3a6a8a : 0x2a3340, 1).strokeRect(x, GAUGE_Y, SLOT_W, SLOT_H);
+      const label = c.key === 'L' && st.weapon === 'laser' ? 'SPREAD' : c.label;
+      const color = lit || flash ? '#1a0a00' : open ? c.color : '#4a5563';
+      this.gaugeLabels[i].setText(open ? label : label === 'GUARD' ? 'GUARD ON' : 'MAX').setColor(color);
+    });
+  }
+
+  flashGauge(i: number) {
+    this.gaugeFlash = i;
+    this.gaugeFlashT = 0.35;
   }
 
   showBoss(name: string) {
@@ -108,7 +154,7 @@ export class Hud {
 
   // Small status message near the bottom edge (gamepad connected, etc.).
   toast(msg: string) {
-    const t = text(this.scene, W / 2, 505, msg, 12, '#9fe8ff').setOrigin(0.5).setAlpha(0);
+    const t = text(this.scene, W / 2, GAUGE_Y - 22, msg, 12, '#9fe8ff').setOrigin(0.5).setAlpha(0);
     this.scene.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 1800, onComplete: () => t.destroy() });
   }
 
