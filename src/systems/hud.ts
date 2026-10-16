@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { DEPTH, FONT, W } from '../config';
 
+export type PlayerStats = { power: number; options: number; speed: number; shield: boolean; bombs: number };
+
 const text = (scene: Phaser.Scene, x: number, y: number, s: string, size: number, color = '#e8fbff') =>
   scene.add
     .text(x, y, s, { fontFamily: FONT, fontSize: `${size}px`, color, fontStyle: '700' })
@@ -11,6 +13,7 @@ export class Hud {
   private scoreText: Phaser.GameObjects.Text;
   private hiText: Phaser.GameObjects.Text;
   private powerText: Phaser.GameObjects.Text;
+  private bombIcons: Phaser.GameObjects.Image[] = [];
   private lifeIcons: Phaser.GameObjects.Image[] = [];
   private shown = 0;
   private bossBar: Phaser.GameObjects.Graphics;
@@ -23,24 +26,33 @@ export class Hud {
   constructor(private scene: Phaser.Scene, private hi: number) {
     this.scoreText = text(scene, 20, 14, '', 18).setShadow(0, 0, '#3cf0ff', 8, true, true);
     this.hiText = text(scene, W - 20, 14, '', 14, '#9fb4c8').setOrigin(1, 0);
-    this.powerText = text(scene, 20, 40, '', 12, '#7dff9a');
+    this.powerText = text(scene, 20, 40, '', 11, '#7dff9a');
+    text(scene, 20, 83, 'BOMB', 11, '#ff8a7a');
     this.bossBar = scene.add.graphics().setDepth(DEPTH.hud);
     this.bossLabel = text(scene, W / 2, 60, '', 11, '#ff9ab0').setOrigin(0.5, 0).setAlpha(0);
   }
 
-  update(dt: number, score: number, lives: number, power: number, boss?: { hp: number; maxHp: number }) {
+  update(dt: number, score: number, lives: number, st: PlayerStats, boss?: { hp: number; maxHp: number }) {
     // Rolling score counter.
     this.shown += (score - this.shown) * Math.min(1, dt * 12);
     if (Math.abs(score - this.shown) < 1) this.shown = score;
     this.scoreText.setText('SCORE ' + Math.round(this.shown).toString().padStart(8, '0'));
     this.hiText.setText('HI ' + Math.max(this.hi, score).toString().padStart(8, '0'));
-    this.powerText.setText('PWR ' + '■'.repeat(power) + '□'.repeat(3 - power));
+    const meter = (n: number, max: number) => '■'.repeat(n) + '□'.repeat(max - n);
+    this.powerText.setText(
+      `PWR ${meter(st.power, 3)}   OPT ${meter(st.options, 3)}   SPD ${meter(st.speed + 1, 3)}${st.shield ? '   GUARD' : ''}`,
+    );
+    while (this.bombIcons.length < st.bombs) {
+      this.bombIcons.push(this.scene.add.image(0, 0, 'cap_B').setScale(0.45).setDepth(DEPTH.hud));
+    }
+    while (this.bombIcons.length > st.bombs) this.bombIcons.pop()!.destroy();
+    this.bombIcons.forEach((ic, i) => ic.setPosition(74 + i * 20, 90));
 
     while (this.lifeIcons.length < lives) {
       this.lifeIcons.push(this.scene.add.image(0, 0, 'player').setScale(0.36).setDepth(DEPTH.hud));
     }
     while (this.lifeIcons.length > lives) this.lifeIcons.pop()!.destroy();
-    this.lifeIcons.forEach((ic, i) => ic.setPosition(36 + i * 28, 70));
+    this.lifeIcons.forEach((ic, i) => ic.setPosition(36 + i * 28, 66));
 
     this.drawBoss(dt, boss);
   }
@@ -92,7 +104,13 @@ export class Hud {
     return [t, st];
   }
 
-  popup(x: number, y: number, value: number, color = '#ffe08a') {
+  // Small status message near the bottom edge (gamepad connected, etc.).
+  toast(msg: string) {
+    const t = text(this.scene, W / 2, 505, msg, 12, '#9fe8ff').setOrigin(0.5).setAlpha(0);
+    this.scene.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 1800, onComplete: () => t.destroy() });
+  }
+
+  popup(x: number, y: number, value: number | string, color = '#ffe08a') {
     const p = text(this.scene, x, y, value.toString(), 13, color).setOrigin(0.5).setDepth(DEPTH.hud - 1);
     this.scene.tweens.add({ targets: p, y: y - 30, alpha: 0, duration: 700, ease: 'Quad.Out', onComplete: () => p.destroy() });
   }

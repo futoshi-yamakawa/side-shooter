@@ -14,6 +14,9 @@ export type EnemyParams = {
   tx?: number;
   exit?: number;
   drop?: boolean;
+  // Formation id: destroying every member drops a capsule.
+  group?: number;
+  groupSize?: number;
 };
 
 type Spec = { tex: string; hp: number; r: number; score: number; color: number };

@@ -1,7 +1,17 @@
 import Phaser from 'phaser';
 import { H } from '../config';
 
-type Draw = (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
+export type CapsuleKey = 'P' | 'O' | 'S' | 'G' | 'B';
+
+export const CAPSULES: { key: CapsuleKey; color: string; tint: number; label: string }[] = [
+  { key: 'P', color: '#7dff9a', tint: 0x7dff9a, label: 'POWER UP' },
+  { key: 'O', color: '#ff7ad8', tint: 0xff7ad8, label: 'OPTION' },
+  { key: 'S', color: '#ffd23c', tint: 0xffd23c, label: 'SPEED UP' },
+  { key: 'G', color: '#c8a0ff', tint: 0xc8a0ff, label: 'GUARD' },
+  { key: 'B', color: '#ff6a5a', tint: 0xff6a5a, label: 'BOMB +1' },
+];
+
+type Draw =(ctx: CanvasRenderingContext2D, w: number, h: number) => void;
 
 // All art is generated at boot from canvas drawing, so the game ships with no
 // third-party image assets and no licensing questions.
@@ -234,19 +244,35 @@ export function buildTextures(scene: Phaser.Scene) {
   });
 
   // ---- items ----
-  make(scene, 'powerup', 40, 40, (c) => {
+  // TwinBee-style capsules: shooting one cycles it through these types.
+  for (const t of CAPSULES) {
+    make(scene, 'cap_' + t.key, 40, 40, (c) => {
+      radial(c, 20, 20, 20, [[0, t.color + '55'], [1, t.color + '00']]);
+      c.beginPath();
+      c.roundRect(7, 8, 26, 24, 9);
+      c.fillStyle = '#0a0f1c';
+      c.fill();
+      neon(c, t.color, 2, 8);
+      c.fillStyle = '#ffffff';
+      c.font = 'bold 17px Arial';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.shadowColor = t.color;
+      c.shadowBlur = 6;
+      c.fillText(t.key, 20, 21);
+    });
+  }
+  make(scene, 'option', 28, 28, (c) => {
+    radial(c, 14, 14, 14, [[0, '#ffffff'], [0.3, '#ffd0ff'], [0.55, 'rgba(255,90,220,0.7)'], [1, 'rgba(255,90,220,0)']]);
     c.beginPath();
-    c.roundRect(6, 8, 28, 24, 8);
-    c.fillStyle = '#062a12';
-    c.fill();
-    neon(c, '#7dff9a', 2, 8);
-    c.fillStyle = '#ffffff';
-    c.font = 'bold 18px Arial';
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.shadowColor = '#7dff9a';
-    c.shadowBlur = 6;
-    c.fillText('P', 20, 21);
+    c.arc(14, 14, 9, 0, Math.PI * 2);
+    neon(c, '#ff7ad8', 1.5, 4);
+  });
+  make(scene, 'shield', 80, 80, (c) => {
+    c.beginPath();
+    c.arc(40, 40, 32, 0, Math.PI * 2);
+    neon(c, 'rgba(200,160,255,0.9)', 2, 10);
+    radial(c, 40, 40, 34, [[0, 'rgba(200,160,255,0)'], [0.75, 'rgba(200,160,255,0.06)'], [1, 'rgba(200,160,255,0.25)']]);
   });
   make(scene, 'star', 16, 16, (c) => {
     c.save();

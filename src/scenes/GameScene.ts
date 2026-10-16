@@ -6,12 +6,14 @@ import { Fx } from '../systems/fx';
 import { Hud } from '../systems/hud';
 import { Juice } from '../systems/juice';
 import { BulletPool } from '../entities/bullets';
-import { Player, Input } from '../entities/player';
+import { Player } from '../entities/player';
+import { Capsule } from '../entities/capsule';
+import { Controls } from '../systems/controls';
 import { Enemy, EnemyKind, EnemyParams } from '../entities/enemy';
 import { Boss, BOSS_NAME } from '../entities/boss';
 import { STAGE1 } from '../stage/stage1';
 
-type Item = Phaser.GameObjects.Image & { kind: 'power' | 'score'; vx: number; vy: number; t: number; homing: boolean };
+type Star = Phaser.GameObjects.Image & { vx: number; vy: number; t: number };
 
 type Mode = 'play' | 'warning' | 'boss' | 'clear' | 'over';
 
@@ -27,7 +29,11 @@ export class GameScene extends Phaser.Scene {
   eBullets!: BulletPool;
   private bg!: Background;
   private enemies: Enemy[] = [];
-  private items: Item[] = [];
+  private stars: Star[] = [];
+  private capsules: Capsule[] = [];
+  private groups = new Map<number, { left: number; escaped: boolean }>();
+  private paused = false;
+  private pauseUi: Phaser.GameObjects.GameObject[] = [];
   private boss: Boss | null = null;
   private mode: Mode = 'play';
   private stageT = 0;
@@ -35,8 +41,7 @@ export class GameScene extends Phaser.Scene {
   private score = 0;
   private lives = 3;
   private hi = 0;
-  private keys!: Record<string, Phaser.Input.Keyboard.Key>;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private controls!: Controls;
 
   constructor() {
     super('Game');
@@ -44,7 +49,10 @@ export class GameScene extends Phaser.Scene {
 
   create(data: { boss?: boolean; startAt?: number }) {
     this.enemies = [];
-    this.items = [];
+    this.stars = [];
+    this.capsules = [];
+    this.groups.clear();
+    this.paused = false;
     this.boss = null;
     this.mode = 'play';
     this.stageT = 0;
@@ -69,9 +77,10 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.postFX.addVignette(0.5, 0.5, 0.95, 0.35);
     this.cameras.main.fadeIn(500);
 
-    const kb = this.input.keyboard!;
-    this.cursors = kb.createCursorKeys();
-    this.keys = kb.addKeys('W,A,S,D,Z,X,SHIFT,SPACE,ENTER') as Record<string, Phaser.Input.Keyboard.Key>;
+    this.controls = new Controls(this);
+    const onPad = () => this.hud.toast('GAMEPAD CONNECTED');
+    window.addEventListener('gamepadconnected', onPad);
+    this.events.once('shutdown', () => window.removeEventListener('gamepadconnected', onPad));
 
     this.sfx.music.play('stage');
     this.hud.banner('STAGE 1', 'NEON OUTSKIRTS', 1800);
@@ -92,6 +101,16 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     const realDt = Math.min(delta / 1000, 1 / 20);
+    const ctl = this.controls;
+    ctl.update();
+    if (ctl.pressed.pause && (this.mode === 'play' || this.mode === 'boss' || this.mode === 'warning')) this.togglePause();
+    if (this.paused) {
+      this.time.timeScale = 0;
+      this.tweens.timeScale = 0;
+      this.fx.setTimeScale(0);
+      this.player.setTimeScale(0);
+      return;
+    }
     const scale = this.juice.update(realDt);
     const dt = realDt * scale;
     this.time.timeScale = scale;
@@ -108,24 +127,36 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    this.player.update(dt, this.readInput());
+    this.player.update(dt, ctl.state);
+    if (ctl.pressed.bomb) this.bomb();
     this.pBullets.update(dt);
     this.eBullets.update(dt);
     for (const e of this.enemies) e.tick(dt, this);
     this.boss?.update(dt);
     this.updateItems(dt);
+    for (const c of this.capsules) c.update(dt);
     this.collide();
     this.enemies = this.enemies.filter((e) => {
       if (e.dead || e.offscreen) {
+        if (!e.dead && e.p.group) this.group(e).escaped = true;
         e.destroy();
         return false;
       }
       return true;
     });
 
-    this.hud.update(realDt, this.score, Math.max(0, this.lives - 1), this.player.power, this.boss ?? undefined);
+    this.capsules = this.capsules.filter((c) => (c.gone ? (c.destroy(), false) : true));
 
-    if ((this.mode === 'over' || this.mode === 'clear') && this.retryReady && [this.keys.Z, this.keys.ENTER, this.keys.SPACE].some((k) => Phaser.Input.Keyboard.JustDown(k))) {
+    const p = this.player;
+    this.hud.update(
+      realDt,
+      this.score,
+      Math.max(0, this.lives - 1),
+      { power: p.power, options: p.optionCount, speed: p.speedLv, shield: p.shield, bombs: p.bombs },
+      this.boss ?? undefined,
+    );
+
+    if ((this.mode === 'over' || this.mode === 'clear') && this.retryReady && ctl.pressed.confirm) {
       this.retryReady = false;
       this.sfx.select();
       this.cameras.main.fade(400, 0, 0, 0, true);
@@ -134,23 +165,42 @@ export class GameScene extends Phaser.Scene {
   }
   private retryReady = false;
 
-  private readInput(): Input {
-    const k = this.keys;
-    const c = this.cursors;
-    let x = 0;
-    let y = 0;
-    if (c.left.isDown || k.A.isDown) x -= 1;
-    if (c.right.isDown || k.D.isDown) x += 1;
-    if (c.up.isDown || k.W.isDown) y -= 1;
-    if (c.down.isDown || k.S.isDown) y += 1;
-    return { x, y, fire: k.Z.isDown || k.SPACE.isDown, focus: k.X.isDown || k.SHIFT.isDown };
+  private togglePause() {
+    this.paused = !this.paused;
+    this.sfx.pause();
+    this.sfx.musicBus.gain.setTargetAtTime(this.paused ? 0.15 : 0.55, this.sfx.now, 0.05);
+    if (this.paused) {
+      const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.55).setDepth(DEPTH.overlay);
+      const t = this.add
+        .text(W / 2, H / 2 - 10, 'PAUSE', { fontFamily: FONT, fontSize: '44px', color: '#e8fbff', fontStyle: '900' })
+        .setOrigin(0.5)
+        .setShadow(0, 0, '#3cf0ff', 18, true, true)
+        .setDepth(DEPTH.overlay);
+      const sub = this.add
+        .text(W / 2, H / 2 + 36, 'ESC / START TO RESUME', { fontFamily: FONT, fontSize: '12px', color: '#9fb4c8' })
+        .setOrigin(0.5)
+        .setDepth(DEPTH.overlay);
+      this.pauseUi = [dim, t, sub];
+    } else {
+      this.pauseUi.forEach((o) => o.destroy());
+      this.pauseUi = [];
+    }
   }
 
   // ---------------------------------------------------------------- spawning
 
   spawn(kind: EnemyKind, p: EnemyParams) {
     if (this.mode !== 'play') return;
-    this.enemies.push(new Enemy(this, kind, p));
+    const e = new Enemy(this, kind, p);
+    if (p.group) this.group(e);
+    this.enemies.push(e);
+  }
+
+  private group(e: Enemy) {
+    const id = e.p.group!;
+    let g = this.groups.get(id);
+    if (!g) this.groups.set(id, (g = { left: e.p.groupSize ?? 1, escaped: false }));
+    return g;
   }
 
   shoot(x: number, y: number, vx: number, vy: number, tex = 'eb', r = 6) {
@@ -181,6 +231,15 @@ export class GameScene extends Phaser.Scene {
     const p = this.player;
 
     this.pBullets.each((b) => {
+      for (const c of this.capsules) {
+        const rr = c.r + b.r;
+        if ((c.x - b.x) ** 2 + (c.y - b.y) ** 2 < rr * rr) {
+          this.pBullets.kill(b);
+          c.shot();
+          this.fx.spark(b.x, b.y, c.info.tint, 2, { min: 150, max: 210 });
+          return;
+        }
+      }
       for (const e of this.enemies) {
         if (e.dead) continue;
         const rr = e.r + b.r;
@@ -260,11 +319,26 @@ export class GameScene extends Phaser.Scene {
       this.sfx.explodeMid();
       this.hud.popup(e.x, e.y - 30, e.score);
     }
-    if (e.p.drop) this.dropItem('power', e.x, e.y);
+    if (e.p.drop) this.dropCapsule(e.x, e.y);
+    if (e.p.group) {
+      const g = this.group(e);
+      if (--g.left === 0 && !g.escaped) {
+        this.dropCapsule(e.x, e.y);
+        this.hud.popup(e.x, e.y - 24, 'FORMATION BONUS 2000', '#9fe8ff');
+        this.score += 2000;
+      }
+    }
   }
 
   private killPlayer() {
     const p = this.player;
+    if (p.absorbHit()) {
+      this.sfx.shieldBreak();
+      this.juice.stop(60);
+      this.juice.shake(160, 0.006);
+      this.cancelBulletsNear(p.x, p.y, 140);
+      return;
+    }
     p.hit();
     this.lives--;
     this.fx.explosion(p.x, p.y, 'l', COLOR.player);
@@ -286,63 +360,100 @@ export class GameScene extends Phaser.Scene {
   cancelBullets(toScore: boolean) {
     this.eBullets.each((b) => {
       this.fx.spark(b.x, b.y, 0xff9ae6, 1);
-      if (toScore) this.dropItem('score', b.x, b.y);
+      if (toScore) this.dropStar(b.x, b.y);
       this.eBullets.kill(b);
     });
   }
 
+  private cancelBulletsNear(x: number, y: number, r: number) {
+    this.eBullets.each((b) => {
+      if ((b.x - x) ** 2 + (b.y - y) ** 2 > r * r) return;
+      this.fx.spark(b.x, b.y, 0xc8a0ff, 1);
+      this.eBullets.kill(b);
+    });
+  }
+
+  // Screen-clearing bomb: wipes bullets into score stars, hits everything on screen.
+  private bomb() {
+    const p = this.player;
+    if (!p.alive || p.bombs <= 0 || !(this.mode === 'play' || this.mode === 'boss')) return;
+    p.bombs--;
+    p.invuln = Math.max(p.invuln, 2.2);
+    this.sfx.bomb();
+    this.juice.stop(90);
+    this.juice.flash(500, 0xffd0f0, 0.75);
+    this.juice.shake(600, 0.018);
+    this.fx.ring(p.x, p.y, 9, 0xff7ad8, 700);
+    this.fx.ring(p.x, p.y, 6, 0xffffff, 550);
+    this.fx.bloom(p.x, p.y, 6, 500, 0xff7ad8);
+    this.cancelBullets(true);
+    for (const e of this.enemies) if (!e.dead) this.hitEnemy(e, 40, e.x, e.y);
+    if (this.boss?.vulnerable) {
+      this.boss.damage(90);
+      this.fx.explosion(this.boss.x - 40, this.boss.y, 'l', COLOR.boss);
+    }
+  }
+
   // ---------------------------------------------------------------- items
 
-  private dropItem(kind: 'power' | 'score', x: number, y: number) {
-    const it = this.add.image(x, y, kind === 'power' ? 'powerup' : 'star').setDepth(DEPTH.items) as Item;
-    it.kind = kind;
+  private dropCapsule(x: number, y: number) {
+    this.capsules.push(new Capsule(this, Phaser.Math.Clamp(x, 60, W - 60), Phaser.Math.Clamp(y, 60, H - 60)));
+  }
+
+  private dropStar(x: number, y: number) {
+    const it = this.add.image(x, y, 'star').setDepth(DEPTH.items) as Star;
     it.t = 0;
-    it.vx = kind === 'power' ? -45 : Phaser.Math.Between(-60, 60);
-    it.vy = kind === 'power' ? -80 : Phaser.Math.Between(-60, 60);
-    it.homing = kind === 'score';
-    this.items.push(it);
+    it.vx = Phaser.Math.Between(-60, 60);
+    it.vy = Phaser.Math.Between(-60, 60);
+    this.stars.push(it);
+  }
+
+  private collectCapsule(c: Capsule) {
+    const p = this.player;
+    const info = c.info;
+    const gained = { P: () => p.powerUp(), O: () => p.addOption(), S: () => p.speedUp(), G: () => p.addShield(), B: () => p.addBomb() }[info.key]();
+    if (gained) {
+      this.sfx.powerup();
+      this.hud.popup(p.x, p.y - 34, info.label, info.color);
+      this.score += 500;
+    } else {
+      // Already maxed: pay out score instead.
+      this.sfx.item();
+      this.hud.popup(p.x, p.y - 34, 5000, info.color);
+      this.score += 5000;
+    }
+    this.fx.ring(c.x, c.y, 0.8, info.tint, 300);
+    c.gone = true;
   }
 
   private updateItems(dt: number) {
     const p = this.player;
-    this.items = this.items.filter((it) => {
+    this.stars = this.stars.filter((it) => {
       it.t += dt;
       const dx = p.x - it.x;
       const dy = p.y - it.y;
-      const d = Math.hypot(dx, dy);
-      if (p.alive && (it.homing && it.t > 0.25 || d < 110)) {
+      const d = Math.hypot(dx, dy) || 1;
+      if (p.alive && it.t > 0.25) {
         const sp = 900 * Math.min(1, it.t);
         it.x += (dx / d) * sp * dt;
         it.y += (dy / d) * sp * dt;
-      } else if (it.kind === 'power') {
-        // Pops up, then drifts left on a slow bob so it never leaves the playfield vertically.
-        it.vy *= Math.pow(0.1, dt);
-        it.x += it.vx * dt;
-        it.y = Phaser.Math.Clamp(it.y + it.vy * dt + Math.sin(it.t * 3) * 30 * dt, 40, H - 40);
       } else {
         it.x += it.vx * dt;
         it.y += it.vy * dt;
       }
-      it.rotation += it.kind === 'score' ? dt * 6 : 0;
+      it.rotation += dt * 6;
       if (p.alive && d < 26) {
-        if (it.kind === 'power') {
-          p.powerUp();
-          this.sfx.powerup();
-          this.score += 1000;
-          this.hud.popup(it.x, it.y - 16, 1000, '#7dff9a');
-        } else {
-          this.score += 50;
-          this.sfx.item();
-        }
-        it.destroy();
-        return false;
-      }
-      if (it.x < -40) {
+        this.score += 50;
+        this.sfx.item();
         it.destroy();
         return false;
       }
       return true;
     });
+    if (!p.alive) return;
+    for (const c of this.capsules) {
+      if (!c.gone && (c.x - p.x) ** 2 + (c.y - p.y) ** 2 < 30 * 30) this.collectCapsule(c);
+    }
   }
 
   // ---------------------------------------------------------------- boss flow

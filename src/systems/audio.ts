@@ -163,6 +163,25 @@ export class AudioEngine {
       this.osc('triangle', mtof(n - 12), mtof(n - 12), 0.2, 0.1, t + i * 0.1);
     });
   }
+  bell() {
+    const t = this.now;
+    this.osc('sine', 1568, 1568, 0.25, 0.12, t);
+    this.osc('sine', 2093, 2093, 0.35, 0.08, t + 0.04);
+  }
+  bomb() {
+    const t = this.now;
+    this.osc('sawtooth', 60, 600, 0.5, 0.18, t);
+    this.noiseHit('bandpass', 400, 4000, 0.5, 0.3, t, this.sfxBus, 1);
+    this.explodeBig();
+  }
+  shieldBreak() {
+    this.osc('triangle', 1800, 300, 0.3, 0.15);
+    this.noiseHit('highpass', 5000, 2000, 0.2, 0.15);
+  }
+  pause() {
+    this.osc('square', 660, 660, 0.06, 0.06);
+    this.osc('square', 990, 990, 0.08, 0.06, this.now + 0.07);
+  }
   select() {
     this.osc('square', 880, 1760, 0.12, 0.08);
   }

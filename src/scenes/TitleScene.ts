@@ -2,12 +2,16 @@ import Phaser from 'phaser';
 import { DEPTH, FONT, H, W } from '../config';
 import { audio } from '../systems/audio';
 import { Background } from '../systems/background';
+import { Controls } from '../systems/controls';
 
 export class TitleScene extends Phaser.Scene {
   private bg!: Background;
   private started = false;
   private ship!: Phaser.GameObjects.Image;
   private t = 0;
+  private controls!: Controls;
+  private startFn: () => void = () => {};
+  private padText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('Title');
@@ -49,19 +53,32 @@ export class TitleScene extends Phaser.Scene {
     this.tweens.add({ targets: sub, alpha: 1, duration: 600, delay: 700 });
 
     const press = this.add
-      .text(W / 2 + 60, 330, 'PRESS Z OR CLICK TO START', { fontFamily: FONT, fontSize: '18px', color: '#ffffff', fontStyle: '700' })
+      .text(W / 2 + 60, 330, 'PRESS Z / A BUTTON TO START', { fontFamily: FONT, fontSize: '18px', color: '#ffffff', fontStyle: '700' })
       .setOrigin(0.5)
       .setDepth(DEPTH.hud);
     this.tweens.add({ targets: press, alpha: 0.25, duration: 700, yoyo: true, repeat: -1 });
 
     this.add
-      .text(W / 2, H - 40, 'MOVE: ARROWS / WASD     SHOT: Z / SPACE (HOLD)     FOCUS: X / SHIFT', {
+      .text(W / 2, H - 52, 'KEYBOARD   MOVE: ARROWS / WASD   SHOT: Z (HOLD)   BOMB: X   SLOW: SHIFT   PAUSE: ESC', {
         fontFamily: FONT,
         fontSize: '11px',
         color: '#9fb4c8',
       })
       .setOrigin(0.5)
       .setDepth(DEPTH.hud);
+    this.add
+      .text(W / 2, H - 32, 'GAMEPAD   MOVE: STICK / D-PAD   SHOT: A (HOLD)   BOMB: B   SLOW: RB   PAUSE: START', {
+        fontFamily: FONT,
+        fontSize: '11px',
+        color: '#9fb4c8',
+      })
+      .setOrigin(0.5)
+      .setDepth(DEPTH.hud);
+    this.padText = this.add
+      .text(W - 16, 14, '', { fontFamily: FONT, fontSize: '10px', color: '#7dff9a' })
+      .setOrigin(1, 0)
+      .setDepth(DEPTH.hud);
+    this.controls = new Controls(this);
 
     const start = () => {
       if (this.started) return;
@@ -75,9 +92,7 @@ export class TitleScene extends Phaser.Scene {
       this.time.delayedCall(450, () => this.cameras.main.fade(300, 0, 0, 0, true));
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Game', { boss: data?.boss, startAt: data?.startAt }));
     };
-    this.input.keyboard!.on('keydown-Z', start);
-    this.input.keyboard!.on('keydown-SPACE', start);
-    this.input.keyboard!.on('keydown-ENTER', start);
+    this.startFn = start;
     this.input.on('pointerdown', start);
   }
 
@@ -85,6 +100,10 @@ export class TitleScene extends Phaser.Scene {
     const dt = delta / 1000;
     this.t += dt;
     this.bg.update(dt);
+    this.controls.update();
+    // Browsers only expose a gamepad after one of its buttons is pressed.
+    this.padText.setText(this.controls.padName ? 'GAMEPAD READY' : 'GAMEPAD: PRESS ANY BUTTON TO CONNECT');
+    if (this.controls.pressed.confirm && this.t > 0.4) this.startFn();
     if (!this.started) this.ship.y = 300 + Math.sin(this.t * 2) * 8;
   }
 }
