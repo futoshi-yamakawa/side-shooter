@@ -3,6 +3,7 @@ import { H, W } from './config';
 import { BootScene } from './scenes/BootScene';
 import { TitleScene } from './scenes/TitleScene';
 import { GameScene } from './scenes/GameScene';
+import { audio } from './systems/audio';
 
 const game = new Phaser.Game({
   type: Phaser.WEBGL,
@@ -13,8 +14,12 @@ const game = new Phaser.Game({
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   fps: { target: 60 },
   render: { antialias: true, powerPreference: 'high-performance' },
+  input: { activePointers: 3 },
   scene: [BootScene, TitleScene, GameScene],
 });
 
 // Exposed for automated playtests and console debugging.
 (window as unknown as { game: Phaser.Game }).game = game;
+
+// iOS can suspend Web Audio (backgrounding, calls); any later tap wakes it again.
+window.addEventListener('touchend', () => audio().resume(), { passive: true });

@@ -101,8 +101,10 @@ export class Player {
         x /= len;
         y /= len;
       }
-      s.x = Phaser.Math.Clamp(s.x + x * sp * dt, 30, W - 40);
-      s.y = Phaser.Math.Clamp(s.y + y * sp * dt, 24, H - 24);
+      s.x = Phaser.Math.Clamp(s.x + x * sp * dt + input.dragX, 30, W - 40);
+      s.y = Phaser.Math.Clamp(s.y + y * sp * dt + input.dragY, 24, H - 24);
+      // touch drags have no stick direction, so bank from the drag speed instead
+      if (input.dragY && dt > 0) y = Phaser.Math.Clamp(input.dragY / dt / SPEED, -1, 1);
       // Fake banking: squash vertically and tilt toward travel direction.
       this.bank = Phaser.Math.Linear(this.bank, y, Math.min(1, dt * 10));
       s.rotation = this.bank * 0.12;

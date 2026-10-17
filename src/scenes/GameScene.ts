@@ -115,10 +115,21 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.postFX.addVignette(0.5, 0.5, 0.95, 0.35);
     this.cameras.main.fadeIn(600);
 
-    this.controls = new Controls(this);
+    this.controls = new Controls(this, true);
     const onPad = () => this.hud.toast('GAMEPAD CONNECTED');
     window.addEventListener('gamepadconnected', onPad);
-    this.events.once('shutdown', () => window.removeEventListener('gamepadconnected', onPad));
+    // Phones: pause when the app is backgrounded or turned to portrait (the page shows a rotate notice).
+    const portrait = window.matchMedia('(orientation: portrait) and (pointer: coarse)');
+    const autoPause = () => {
+      if ((document.hidden || portrait.matches) && !this.paused && (this.mode === 'play' || this.mode === 'boss' || this.mode === 'warning')) this.togglePause();
+    };
+    document.addEventListener('visibilitychange', autoPause);
+    portrait.addEventListener('change', autoPause);
+    this.events.once('shutdown', () => {
+      window.removeEventListener('gamepadconnected', onPad);
+      document.removeEventListener('visibilitychange', autoPause);
+      portrait.removeEventListener('change', autoPause);
+    });
 
     this.sfx.music.play(this.def.music);
     this.hud.banner(this.def.name, this.def.sub, 1800);
@@ -224,7 +235,7 @@ export class GameScene extends Phaser.Scene {
         .setShadow(0, 0, '#3cf0ff', 18, true, true)
         .setDepth(DEPTH.overlay);
       const sub = this.add
-        .text(W / 2, H / 2 + 36, 'ESC / START TO RESUME', { fontFamily: FONT, fontSize: '12px', color: '#9fb4c8' })
+        .text(W / 2, H / 2 + 36, this.sys.game.device.input.touch ? 'TAP II TO RESUME' : 'ESC / START TO RESUME', { fontFamily: FONT, fontSize: '12px', color: '#9fb4c8' })
         .setOrigin(0.5)
         .setDepth(DEPTH.overlay);
       this.pauseUi = [dim, t, sub];
@@ -680,7 +691,7 @@ export class GameScene extends Phaser.Scene {
     const last = this.stageNo >= STAGES.length;
     if (last) {
       this.hud.banner('ALL STAGES CLEAR', `CONGRATULATIONS   ·   FINAL SCORE ${this.score}`, 60000, '#ffe08a');
-      this.time.delayedCall(2200, () => this.showRetry('PRESS Z / A TO RETURN TO TITLE'));
+      this.time.delayedCall(2200, () => this.showRetry(this.retryMsg()));
       return;
     }
     this.hud.banner(`${this.def.name} CLEAR`, `BOSS BONUS ${this.bossBonus}   ·   SCORE ${this.score}`, 3200, '#3cf0ff');
@@ -704,8 +715,12 @@ export class GameScene extends Phaser.Scene {
     this.saveHi();
     this.time.delayedCall(1200, () => {
       this.hud.banner('GAME OVER', `${this.def.name}   ·   SCORE ${this.score}`, 60000, '#ff4d6d');
-      this.time.delayedCall(1200, () => this.showRetry('PRESS Z / A TO RETURN TO TITLE'));
+      this.time.delayedCall(1200, () => this.showRetry(this.retryMsg()));
     });
+  }
+
+  private retryMsg() {
+    return this.sys.game.device.input.touch ? 'TAP TO RETURN TO TITLE' : 'PRESS Z / A TO RETURN TO TITLE';
   }
 
   private showRetry(msg: string) {

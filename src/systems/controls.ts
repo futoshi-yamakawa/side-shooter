@@ -1,8 +1,12 @@
 import Phaser from 'phaser';
+import { TouchInput } from './touch';
 
 export type ControlState = {
   x: number;
   y: number;
+  // Touch drag travel this frame, in game pixels (applied directly, not as velocity).
+  dragX: number;
+  dragY: number;
   fire: boolean;
   focus: boolean;
   bomb: boolean;
@@ -27,8 +31,10 @@ export class Controls {
   state: ControlState = blank();
   pressed: ControlState = blank();
   padName = '';
+  readonly touch: TouchInput;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, touchButtons = false) {
+    this.touch = new TouchInput(scene, touchButtons);
     this.keys = scene.input.keyboard!.addKeys(
       'UP,DOWN,LEFT,RIGHT,W,A,S,D,Z,X,C,SHIFT,SPACE,ENTER,ESC,P',
     ) as Record<string, Phaser.Input.Keyboard.Key>;
@@ -55,10 +61,12 @@ export class Controls {
     s.x = Phaser.Math.Clamp(s.x, -1, 1);
     s.y = Phaser.Math.Clamp(s.y, -1, 1);
 
+    const tapped = this.touch.read(s);
     for (const key of Object.keys(s) as (keyof ControlState)[]) {
-      if (key === 'x' || key === 'y') continue;
+      if (typeof s[key] !== 'boolean') continue;
       (this.pressed[key] as boolean) = (s[key] as boolean) && !(this.prev[key] as boolean);
     }
+    for (const key of Object.keys(tapped) as (keyof typeof tapped)[]) if (tapped[key]) this.pressed[key] = true;
     // A tap shorter than one frame never shows up in isDown; JustDown latches it.
     const jd = Phaser.Input.Keyboard.JustDown;
     if (jd(k.Z) || jd(k.ENTER) || jd(k.SPACE)) this.pressed.confirm = true;
@@ -70,7 +78,7 @@ export class Controls {
 }
 
 function blank(): ControlState {
-  return { x: 0, y: 0, fire: false, focus: false, bomb: false, powerup: false, pause: false, confirm: false };
+  return { x: 0, y: 0, dragX: 0, dragY: 0, fire: false, focus: false, bomb: false, powerup: false, pause: false, confirm: false };
 }
 
 function firstPad(): Gamepad | null {

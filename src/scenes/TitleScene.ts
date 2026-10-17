@@ -53,12 +53,23 @@ export class TitleScene extends Phaser.Scene {
     this.tweens.add({ targets: title, alpha: 1, scale: 1, duration: 700, delay: 300, ease: 'Expo.Out' });
     this.tweens.add({ targets: sub, alpha: 1, duration: 600, delay: 700 });
 
+    const touch = this.sys.game.device.input.touch;
     const press = this.add
-      .text(W / 2 + 60, 330, 'PRESS Z / A BUTTON TO START', { fontFamily: FONT, fontSize: '18px', color: '#ffffff', fontStyle: '700' })
+      .text(W / 2 + 60, 330, touch ? 'TAP TO START' : 'PRESS Z / A BUTTON TO START', { fontFamily: FONT, fontSize: '18px', color: '#ffffff', fontStyle: '700' })
       .setOrigin(0.5)
       .setDepth(DEPTH.hud);
     this.tweens.add({ targets: press, alpha: 0.25, duration: 700, yoyo: true, repeat: -1 });
 
+    if (touch) {
+      this.add
+        .text(W / 2, H - 72, 'TOUCH   DRAG ANYWHERE: MOVE + AUTO SHOT   RIGHT BUTTONS: POWER UP / BOMB', {
+          fontFamily: FONT,
+          fontSize: '11px',
+          color: '#ffd08a',
+        })
+        .setOrigin(0.5)
+        .setDepth(DEPTH.hud);
+    }
     this.add
       .text(W / 2, H - 52, 'KEYBOARD   MOVE: ARROWS / WASD   SHOT: Z   POWER UP: C   BOMB: X   SLOW: SHIFT   PAUSE: ESC', {
         fontFamily: FONT,
@@ -87,6 +98,7 @@ export class TitleScene extends Phaser.Scene {
       const a = audio();
       a.resume();
       a.select();
+      if (touch) goFullscreen(this);
       this.tweens.add({ targets: this.ship, x: W + 120, duration: 600, ease: 'Cubic.In' });
       this.cameras.main.flash(200, 120, 240, 255);
       // force=true: the title's own fade-in may still be running if the player starts instantly.
@@ -94,7 +106,9 @@ export class TitleScene extends Phaser.Scene {
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Game', { boss: data?.boss, startAt: data?.startAt, stage: data?.stage } satisfies GameData));
     };
     this.startFn = start;
-    this.input.on('pointerdown', start);
+    // pointerup, not pointerdown: on touch screens only the release counts as a user
+    // gesture, which audio unlock and fullscreen both require.
+    this.input.on('pointerup', start);
   }
 
   update(_t: number, delta: number) {
@@ -106,5 +120,17 @@ export class TitleScene extends Phaser.Scene {
     this.padText.setText(this.controls.padName ? 'GAMEPAD READY' : 'GAMEPAD: PRESS ANY BUTTON TO CONNECT');
     if (this.controls.pressed.confirm && this.t > 0.4) this.startFn();
     if (!this.started) this.ship.y = 300 + Math.sin(this.t * 2) * 8;
+  }
+}
+
+// Phones: fill the screen and hold landscape where the browser allows it.
+// iPhone Safari and sandboxed iframes refuse both; the page still plays letterboxed.
+function goFullscreen(scene: Phaser.Scene) {
+  try {
+    if (!scene.scale.isFullscreen) scene.scale.startFullscreen();
+    const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    o?.lock?.('landscape').catch(() => {});
+  } catch {
+    // not supported here
   }
 }
