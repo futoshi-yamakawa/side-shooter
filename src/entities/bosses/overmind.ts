@@ -139,13 +139,14 @@ export class Overmind implements BossLike {
         return 'hit';
       }
     }
+    // Sealed, the shell deflects shots. Open, the whole shell counts as the eye:
+    // a ring-shaped "block" zone would stop every bullet before it reached the
+    // centre, since shots enter from outside a step at a time.
     const d2 = (this.x - x) ** 2 + (this.y - y) ** 2;
-    if (d2 < 52 * 52 && this.state === 'open') {
-      this.damageCore(dmg);
-      return 'hit';
-    }
-    if (d2 < 94 * 94) return 'block';
-    return null;
+    if (d2 >= 94 * 94) return null;
+    if (this.state !== 'open') return 'block';
+    this.damageCore(dmg);
+    return 'hit';
   }
 
   touches(x: number, y: number) {
